@@ -42,7 +42,7 @@
 .bs-head .progress { flex: 1; min-width: 160px; }
 .bs-nums { display: flex; gap: 16px; color: var(--sub); font-size: 13px; }
 .bs-nums b { color: var(--ink); font-size: 16px; }
-.timeline { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(6px, 1fr); gap: 2px; height: 30px; margin: 6px 0 4px; }
+.timeline { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(2px, 1fr); gap: 1px; height: 30px; margin: 6px 0 4px; }
 .timeline a { border-radius: 2px; background: #dfe3e9; position: relative; }
 .timeline a.half { background: #f2c26b; } .timeline a.done { background: #53b98b; }
 .timeline a.changes { background: #ff6b6d; } .timeline a.uncomparable { background: #8e97a6; } .timeline a.base { opacity: .55; }

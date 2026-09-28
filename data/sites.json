@@ -230,9 +230,14 @@
    ],
    "note": "OpenStreetMap 京广线，位置可能有数米偏差"
   },
-  "n_tasks": 58,
-  "first_task_date": "2023-01-04",
-  "last_task_date": "2024-12-17"
+  "n_tasks": 180,
+  "first_task_date": "2021-08-02",
+  "last_task_date": "2026-07-12",
+  "dropped_same_day": [
+   "ZZ_2025-04-28_S2A_T49RGL_R075",
+   "ZZ_2025-11-24_S2A_T49RGL_R075",
+   "ZZ_2026-06-02_S2A_T49RGL_R075"
+  ]
  },
  "HY": {
   "code": "HY",
@@ -401,9 +406,16 @@
    ],
    "note": "OpenStreetMap 京广线，位置可能有数米偏差"
   },
-  "n_tasks": 77,
-  "first_task_date": "2023-01-04",
-  "last_task_date": "2024-12-29"
+  "n_tasks": 206,
+  "first_task_date": "2021-08-02",
+  "last_task_date": "2026-07-10",
+  "dropped_same_day": [
+   "HY_2025-08-26_S2A_T49RFK_R075",
+   "HY_2025-09-15_S2A_T49RFK_R075",
+   "HY_2025-11-24_S2A_T49RFK_R075",
+   "HY_2025-12-14_S2A_T49RFK_R075",
+   "HY_2026-03-14_S2A_T49RFK_R075"
+  ]
  },
  "SG": {
   "code": "SG",
@@ -2538,8 +2550,9 @@
    ],
    "note": "OSM参考线（原只覆盖旧2 km范围），两端按走向外推到图边，外推部分为示意"
   },
-  "n_tasks": 41,
-  "first_task_date": "2023-01-14",
-  "last_task_date": "2024-12-29"
+  "n_tasks": 116,
+  "first_task_date": "2021-08-02",
+  "last_task_date": "2026-07-12",
+  "dropped_same_day": []
  }
 }

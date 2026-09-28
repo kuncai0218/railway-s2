@@ -94,6 +94,34 @@ export async function flushQueue() {
 window.addEventListener('online', flushQueue);
 setInterval(flushQueue, 30000);
 
+// Keep a table in sync: the first pull reads everything, later pulls read only rows created since the newest one seen
+// (with a one-minute overlap, de-duplicated by id), so a page left open does not download the whole table every time.
+export function tableSync(table, filters = {}) {
+  const rows = [], ids = new Set();
+  let newest = '';
+  const sortRows = () => rows.sort((a, b) => (!!a._fresh - !!b._fresh) || a.created_at.localeCompare(b.created_at));
+  return {
+    rows,
+    async pull() {
+      const f = { ...filters };
+      if (newest) {
+        const t = Date.parse(newest.replace(/(\.\d{3})\d+/, '$1')) - 60000;
+        f.created_at = `gte.${new Date(t).toISOString()}`;
+      }
+      for (const r of await selectAll(table, f)) {
+        if (ids.has(r.id)) continue;
+        ids.add(r.id);
+        rows.push(r);
+        if (r.created_at > newest) newest = r.created_at;
+      }
+      sortRows();
+      return rows;
+    },
+    // a row this page just saved: keep it and skip the server copy when it arrives
+    add(row) { if (!ids.has(row.id)) { ids.add(row.id); rows.push(row); sortRows(); } },
+  };
+}
+
 // Read every row matching the filters, 1000 at a time.
 export async function selectAll(table, filters = {}, order = 'created_at.asc') {
   const out = [];

@@ -1,5 +1,5 @@
 // Live board: progress, a colour strip per site, a map of every recorded change, and recent activity.
-import { selectAll } from './api.js';
+import { tableSync } from './api.js';
 import { loadSites, loadPeriods, latestByScene, periodState, progress, fmtDate, fmtTime, stepThree, reviewsByScene } from './store.js';
 import { SITE_ORDER, CHANGE_TAGS, OVERALL_NAME } from './config.js';
 
@@ -102,9 +102,11 @@ function render(rows, reviews, questions, answers) {
   $('updated').textContent = `更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
 }
 
+const sync = { readings: tableSync('readings'), reviews: tableSync('reviews'), questions: tableSync('questions'), answers: tableSync('answers') };
 async function refresh() {
+  if (document.hidden && built) return;      // nobody is looking: skip this round
   try {
-    const [rows, reviews, questions, answers] = await Promise.all([selectAll('readings'), selectAll('reviews'), selectAll('questions'), selectAll('answers')]);
+    const [rows, reviews, questions, answers] = await Promise.all([sync.readings.pull(), sync.reviews.pull(), sync.questions.pull(), sync.answers.pull()]);
     render(rows, reviews, questions, answers);
   } catch (err) {
     if (!built) render([], [], [], []);
@@ -120,5 +122,6 @@ async function main() {
   await refresh();
   if (location.hash) document.getElementById(`sec-${location.hash.slice(1)}`)?.scrollIntoView();
   setInterval(refresh, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 }
 main();

@@ -65,17 +65,17 @@
   </section>
 
   <section class="card">
-    <h2><span class="no">4</span>一共有多少影像，第一期先做多少</h2>
-    <p>我们手上有三个测点 <b>2021 年 7 月到 2026 年 7 月</b>的 Sentinel-2 卫星影像，一共 <b>513 期</b>，被云完全遮住的日期大多已经去掉了。第一期先做 <b>2023—2024 年</b>这两年，一共 <b>176 期</b>，做完再往前、往后扩展。</p>
+    <h2><span class="no">4</span>一共有多少影像，要做多少</h2>
+    <p>我们手上有三个测点 <b>2021 年 7 月到 2026 年 7 月</b>的 Sentinel-2 卫星影像，一共 <b>513 景</b>，被云完全遮住的日期大多已经去掉了。2025 年以后有 8 天同一天拍了两景（只差约 10 分钟），每天只留一景，按时间排好后是 <b>505 期</b>，全部都要判读。最开始先做了 2023—2024 年的 176 期，现在已经扩展到全部，之前标好的结果原样保留。</p>
     <div id="countTable"></div>
-    <p class="small muted" style="margin-top:10px">每个测点另有一张 2022 年最后一期的影像作为“第 0 期”，只判断能不能看清，用来和 2023 年的第一期比较。</p>
+    <p class="small muted" style="margin-top:10px">每个测点最早的一景（2021 年 7 月）是“第 0 期”，只判断能不能看清，用来和下一期比较；其余每一期都要和上一期对比。</p>
     <p style="margin-top:14px"><a class="btn primary" href="learn.html">下一步：学习怎么判读 ›</a></p>
   </section>
 </main>
 <script type="module">
 import { loadSites, loadPeriods } from './assets/js/store.js';
 import { SITE_ORDER, SITE_INFO } from './assets/js/config.js';
-const TOTAL = { ZZ: 184, HY: 212, SG: 117 };
+let totalAll = 0, totalTasks = 0;
 const sites = await loadSites();
 const box = document.getElementById('siteCards');
 let rows = '';
@@ -88,11 +88,12 @@ for (const c of SITE_ORDER) {
     <div style="position:relative;aspect-ratio:1;background:#14171c"><img src="${ref.tc}" style="width:100%;height:100%;image-rendering:pixelated;display:block">${aoi}</div>
     <div style="padding:12px 14px"><b style="font-size:16px;display:flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block"></i>${s.name}</b>
     <p class="small muted" style="margin:6px 0 0">${SITE_INFO[c].concern}</p><p class="tiny" style="margin:6px 0 0">${s.aoi ? '看铁路右侧靠山的一面（黄线内）' : '看整幅影像'}</p></div></div>`);
-  rows += `<tr><td><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block;margin-right:6px"></i>${s.name}</td><td>${TOTAL[c]} 期</td><td><b>${s.n_tasks} 期</b></td><td>${s.aoi ? '铁路右侧山体' : '整幅'}</td></tr>`;
+  totalAll += per.length; totalTasks += s.n_tasks;
+  rows += `<tr><td><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block;margin-right:6px"></i>${s.name}</td><td>${per.length} 期</td><td><b>${s.n_tasks} 期</b></td><td>${s.aoi ? '铁路右侧山体' : '整幅'}</td></tr>`;
 }
 document.getElementById('countTable').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:15px">
-  <thead><tr style="text-align:left;color:var(--sub);font-size:13px"><th style="padding:8px 6px;border-bottom:1px solid var(--line)">测点</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">全部影像（2021.7—2026.7）</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">第一期要做（2023—2024）</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">观察范围</th></tr></thead>
-  <tbody>${rows}<tr style="font-weight:700"><td style="padding:8px 6px">合计</td><td style="padding:8px 6px">513 期</td><td style="padding:8px 6px">176 期</td><td></td></tr></tbody></table>`;
+  <thead><tr style="text-align:left;color:var(--sub);font-size:13px"><th style="padding:8px 6px;border-bottom:1px solid var(--line)">测点</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">期数（2021.7—2026.7）</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">要对比的期数</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">观察范围</th></tr></thead>
+  <tbody>${rows}<tr style="font-weight:700"><td style="padding:8px 6px">合计</td><td style="padding:8px 6px">${totalAll} 期</td><td style="padding:8px 6px">${totalTasks} 期</td><td></td></tr></tbody></table>`;
 document.querySelectorAll('#countTable tbody td').forEach(td => { td.style.padding = td.style.padding || '8px 6px'; td.style.borderBottom = '1px solid var(--line)'; });
 </script>
 </body>

@@ -1,6 +1,6 @@
 // Leader desk: review queue (confirm / reject / modify step 2, check step 3), answer questions, export records.
 import { Scene } from './viewer.js';
-import { append, selectAll } from './api.js';
+import { append, tableSync } from './api.js';
 import { loadSites, loadPeriods, latestByScene, fmtDate, fmtTime, stepThree, decodeCells, sameGeom } from './store.js';
 import { SITE_ORDER, CHANGE_TAGS, QUALITY_NAME, OVERALL_NAME } from './config.js';
 
@@ -26,8 +26,9 @@ function decName(r) {
   return ({ confirmed: `确认${s}`, modified: `修改并确认${s}`, rejected: '不是变化', note: '只加批注' })[r.decision] || r.decision;
 }
 
+const sync = { readings: tableSync('readings'), reviews: tableSync('reviews'), questions: tableSync('questions'), answers: tableSync('answers') };
 async function loadAll() {
-  [rows, reviews, questions, answers] = await Promise.all([selectAll('readings'), selectAll('reviews'), selectAll('questions'), selectAll('answers')]);
+  [rows, reviews, questions, answers] = await Promise.all([sync.readings.pull(), sync.reviews.pull(), sync.questions.pull(), sync.answers.pull()]);
   latest = {};
   for (const c of SITE_ORDER) latest[c] = latestByScene(rows.filter(r => r.site === c));
   $('updated').textContent = `数据更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
@@ -235,7 +236,7 @@ function renderBoxes() {
 async function addReview(row, msg) {
   const res = await append('reviews', row);
   res.row._fresh = true;   // newer than anything read from the server
-  reviews.push(res.row);
+  sync.reviews.add(res.row);
   toast(msg);
   $('rvComment').value = '';
   renderList();
@@ -302,7 +303,7 @@ function renderQuestions() {
       if (!text) { toast('请先写回答'); return; }
       try {
         const res = await append('answers', { question_id: q.id, text, add_to_faq: card.querySelector('input[type=checkbox]').checked });
-        answers.push(res.row);
+        sync.answers.add(res.row);
         toast('已回答');
         renderQuestions();
       } catch (err) { toast(err.message); }
@@ -416,7 +417,9 @@ async function main() {
   try { await loadAll(); } catch { $('updated').textContent = '暂时连不上数据库'; }
   updateCounts();
   renderList();
+  document.addEventListener('visibilitychange', async () => { if (!document.hidden) { try { await loadAll(); updateCounts(); renderList(); } catch { /* keep */ } } });
   setInterval(async () => {
+    if (document.hidden) return;
     try { await loadAll(); } catch { return; }
     updateCounts();
     renderList();

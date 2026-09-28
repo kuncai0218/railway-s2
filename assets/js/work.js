@@ -1,7 +1,7 @@
 // Reading workbench: step 1 = is this image readable, step 2 = what changed since the previous image,
 // step 3 = paint exactly which 10 m cells changed inside the boxes the leader confirmed.
 import { Scene } from './viewer.js';
-import { append, onQueueChange, pendingRows, uuid, selectAll } from './api.js';
+import { append, onQueueChange, pendingRows, uuid, tableSync } from './api.js';
 import { loadSites, loadPeriods, loadReadings, latestByScene, periodState, progress, fmtDate, fmtTime, stable,
   stepTwo, stepThree, STEP3_NAME, canStep3, cellRange, sameGeom, encodeCells, decodeCells, countCells } from './store.js';
 import { QUALITY_REASONS, CHANGE_TAGS, QUALITY_LEVELS, OVERALL, QUALITY_NAME, OVERALL_NAME } from './config.js';
@@ -22,6 +22,7 @@ const TODO3 = ['open', 'returned'];
 const CARD3 = { wait: '等组长确认第二步', open: '待做', done: '已保存，等组长检查', returned: '被组长退回', checked: '组长已检查通过' };
 
 let site, periods, rows = [], latest = {}, reviews = [];
+const reviewSync = tableSync('reviews', { site: `eq.${code}` });
 let editing = false;   // the open period was already finished: saving keeps you on it
 let k = 0, step = 1, q = emptyQ(), c = emptyC(), imgKind = 'tc';
 let pz = null;                  // step 3 working copy of the open period
@@ -82,11 +83,11 @@ function renderHeader() {
   if (p.role === 'baseline') {
     $('periodTitle').textContent = '第 0 期';
     $('periodDate').textContent = `${fmtDate(p.date)} · ${p.satellite} ${p.orbit}`;
-    $('periodGap').textContent = '2022 年最后一期，只看能否看清';
+    $('periodGap').textContent = '最早的一期，只看能否看清';
   } else {
     $('periodTitle').textContent = `第 ${k} / ${site.n_tasks} 期`;
     $('periodDate').textContent = `${fmtDate(p.date)} · ${p.satellite} ${p.orbit}`;
-    $('periodGap').textContent = `距上一期 ${p.gap_days} 天`;
+    $('periodGap').textContent = p.gap_days === 0 ? '和上一期同一天拍摄，只差约 10 分钟' : `距上一期 ${p.gap_days} 天`;
   }
   $('progBar').style.width = `${Math.round(pr.finished / pr.total * 100)}%`;
   $('progText').textContent = `已完成 ${pr.finished} / ${pr.total} 期`;
@@ -266,6 +267,7 @@ function renderPanel2() {
   if (!pq) note = '<div class="notice warn">上一期还没判断能不能看清。建议先回到上一期完成第一步。</div>';
   if (prevFull) note = '<div class="notice warn">上一期基本看不清，这一对没法比较。直接点“保存，进入下一期”即可。</div>';
   const two = stepTwo(latest[cur().scene_id] || {}, reviewsOf());
+  if (cur().gap_days === 0) note += '<div class="notice">这两景是同一天拍的，只差约 10 分钟（两颗卫星从不同方向看），地面不会真的变化。只在“不同点”里记整体差异（如颜色、水面发白发亮），一般不用画框。</div>';
   if (two.source === 'leader') note += '<div class="notice">下面是组长修改后的版本。</div>';
   if (!practice && two.verdict?.decision === 'rejected') note += `<div class="notice warn">组长认为这一期标的不是变化${two.verdict.comment ? `：${esc(two.verdict.comment)}` : ''}。</div>`;
   else if (!practice && two.verdict) note += '<div class="notice">组长已经确认了这一步。如果再改动并保存，要等组长重新确认，第三步会暂时关闭。</div>';
@@ -628,7 +630,8 @@ function renderList() {
 
 // The leader may confirm step 2 while the page is open: refresh the reviews now and then.
 async function refreshReviews() {
-  try { reviews = await selectAll('reviews', { site: `eq.${code}` }); } catch { return; }
+  if (document.hidden) return;
+  try { reviews = await reviewSync.pull(); } catch { return; }
   renderHeader();
   renderTabs();
   if (editing) renderDoneCard();
@@ -803,7 +806,7 @@ async function init() {
   } else {
     const res = await loadReadings(code);
     rows = res.rows;
-    try { reviews = await selectAll('reviews', { site: `eq.${code}` }); } catch { reviews = []; }
+    try { reviews = await reviewSync.pull(); } catch { reviews = []; }
     recompute();
     if (!res.online) { const b = $('saveState'); b.className = 'badge danger'; b.textContent = '连不上服务器，记录会先存在本机'; }
     else setSaveBadge(pendingRows().length);

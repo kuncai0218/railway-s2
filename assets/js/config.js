@@ -1,7 +1,7 @@
 // Supabase project used by every page. The publishable key is meant to be public (read + append only, see supabase_schema.sql).
 export const SUPABASE_URL = 'https://xyejiowiupwrxvgvqwfr.supabase.co';
 export const SUPABASE_KEY = 'sb_publishable_MqFx0d8g34iu-bgYAjSBMw_kPuSfBN8';
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.4.0';
 
 export const QUALITY_REASONS = ['云', '雾 / 霾', '阴影', '黑块 / 缺失', '条纹', '太亮 / 太暗', '模糊'];
 
