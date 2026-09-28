@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>组长台 · 三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/work.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link" href="index.html">首页</a>
+  <a class="link" href="background.html">项目背景</a>
+  <a class="link" href="learn.html">学习</a>
+  <a class="link" href="work.html">判读</a>
+  <a class="link" href="board.html">实时看板</a>
+  <a class="link on" href="leader.html">组长台</a>
+  <span class="spacer"></span>
+  <span class="tiny" id="updated"></span>
+</nav>
+<main class="page" style="max-width:1400px">
+  <div class="tabs"><button data-tab="review" class="on">复核</button><button data-tab="questions">问题区 <span class="badge" id="qCount">0</span></button><button data-tab="export">导出</button></div>
+
+  <section id="tab-review">
+    <div class="filters">
+      <select id="fSite"><option value="">全部测点</option></select>
+      <select id="fType">
+        <option value="changes">有变化</option>
+        <option value="partial">部分看不清</option>
+        <option value="full">整幅看不清 / 没法比较</option>
+        <option value="none">没有明显不同（抽查用）</option>
+        <option value="other">写了“说不清”或其他</option>
+        <option value="reviewed">已复核</option>
+        <option value="all">全部已做的期</option>
+      </select>
+      <label class="small"><input type="checkbox" id="fUnreviewed" checked> 只看未复核</label>
+      <button class="btn sm" id="btnSample">随机抽 5 期</button>
+      <span class="tiny" id="fCount"></span>
+    </div>
+    <div class="rq">
+      <div class="rq-list" id="rqList"></div>
+      <div class="card rq-view" id="rqView"><p class="muted">从左边选一期开始复核。</p></div>
+    </div>
+  </section>
+
+  <section id="tab-questions" hidden><div id="qaList"></div></section>
+
+  <section id="tab-export" hidden>
+    <div class="card" style="padding:20px 24px;max-width:760px">
+      <h2>导出记录</h2>
+      <p class="muted small">导出的是数据库里的最新记录。表格文件可以直接用 Excel 打开。</p>
+      <div style="display:flex;flex-direction:column;gap:12px;align-items:flex-start">
+        <button class="btn primary" id="exPeriods">导出每一期的判读结果（表格）</button>
+        <button class="btn" id="exBoxes">导出全部变化框清单（表格，含坐标、类别和复核结论）</button>
+        <button class="btn" id="exJson">导出完整备份（JSON，含所有历史版本）</button>
+      </div>
+      <p class="tiny" style="margin-top:14px">坐标说明：像元坐标以影像左上角为原点，x 向右、y 向下，单位为像元（10 米）；同时给出 EPSG:32649（UTM 49N）米制坐标。</p>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<script type="module" src="assets/js/leader.js"></script>
+</body>
+</html>

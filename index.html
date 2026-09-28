@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link on" href="index.html">首页</a>
+  <a class="link" href="background.html">项目背景</a>
+  <a class="link" href="learn.html">学习</a>
+  <a class="link" href="work.html">判读</a>
+  <a class="link" href="board.html">实时看板</a>
+  <a class="link" href="leader.html">组长台</a>
+  <span class="spacer"></span>
+</nav>
+
+<main class="page">
+  <section class="hero">
+    <div>
+      <h1>用卫星影像，一期一期看清铁路上方的山</h1>
+      <p class="lead">我们把 2023—2024 年京广线三个测点的 Sentinel-2 卫星影像按时间排好，每一期都和上一期对比，记下地面出现的变化。这些记录会整理成训练数据，帮助今后用电脑自动发现铁路沿线的风险。</p>
+      <div class="facts">
+        <span><b>3</b> 个测点</span><span><b>176</b> 期影像</span><span><b>10 米</b> 一个像元</span><span><b>2023—2024</b> 年</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="guide">
+    <a class="gstep" href="background.html"><span class="gn">1</span><div><b>了解项目背景</b><small>为什么要看这些影像，约 10 分钟</small></div></a>
+    <span class="garrow">›</span>
+    <a class="gstep" href="learn.html"><span class="gn">2</span><div><b>学会怎么判读</b><small>认识影像、看不清、找不同，约 30 分钟</small></div></a>
+    <span class="garrow">›</span>
+    <a class="gstep" href="#sites"><span class="gn">3</span><div><b>开始判读</b><small>进入你负责的测点</small></div></a>
+  </section>
+
+  <section class="sites" id="sites"></section>
+
+  <section class="today card" id="today">
+    <div class="tcell"><span class="tl">今天完成</span><b id="tDone">—</b><span class="tu">期</span></div>
+    <div class="tcell"><span class="tl">今天新记录的变化</span><b id="tChanges">—</b><span class="tu">处</span></div>
+    <div class="tcell"><span class="tl">等待组长回答的问题</span><b id="tQuestions">—</b><span class="tu">个</span></div>
+    <div class="tcell tlinks"><a class="btn" href="board.html">看实时看板</a><a class="btn ghost" href="leader.html">组长台</a></div>
+  </section>
+
+  <p class="tiny foot">影像：欧洲航天局 Copernicus Sentinel-2 L2A，10 米网格，统一颜色拉伸。现场照片来自项目阶段报告。<span id="connState"></span></p>
+</main>
+<script type="module" src="assets/js/home.js"></script>
+</body>
+</html>

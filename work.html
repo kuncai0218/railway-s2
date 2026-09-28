@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>判读工作台 · 三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/work.css">
+</head>
+<body class="work">
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link" href="index.html">首页</a>
+  <a class="link" href="background.html">项目背景</a>
+  <a class="link" href="learn.html">学习</a>
+  <a class="link on" href="work.html">判读</a>
+  <a class="link" href="board.html">实时看板</a>
+  <a class="link" href="leader.html">组长台</a>
+  <span class="spacer"></span>
+  <span class="badge" id="saveState">正在连接…</span>
+</nav>
+
+<header class="wbar">
+  <div class="site-chip"><i id="siteColor"></i><span id="siteName">加载中</span></div>
+  <div class="where"><b id="periodTitle"></b><span id="periodDate"></span><span id="periodGap"></span></div>
+  <div class="wprog"><div class="progress"><i id="progBar" style="width:0"></i></div><span id="progText"></span></div>
+  <button class="btn" id="btnList">全部期次</button>
+  <button class="btn" id="btnPrev">‹ 上一期</button>
+  <button class="btn" id="btnNext">下一期 ›</button>
+</header>
+
+<main class="wmain">
+  <section class="stagebox">
+    <div class="toolbar">
+      <div class="seg" id="segMode"><button data-mode="pan" class="on">拖动 / 缩放</button><button data-mode="draw">画框</button></div>
+      <div class="seg" id="segImg"><button data-img="tc" class="on">真彩色</button><button data-img="fc">植被假彩色</button></div>
+      <div class="seg" id="segShow"><button data-show="aoi" class="on">观察范围</button><button data-show="rail" class="on">铁路</button></div>
+      <div class="seg"><button id="zin" title="放大">＋</button><button id="zout" title="缩小">－</button><button id="zfit" title="复原">复原</button></div>
+      <span class="hint">滚轮放大 · 按住拖动 · 双击复原 · 画框时按住空格可临时拖动</span>
+    </div>
+    <div class="views one" id="views1"><div class="vbox" id="v1"></div></div>
+    <div class="views two" id="views2" hidden><div class="vbox" id="v2a"></div><div class="vbox" id="v2b"></div></div>
+  </section>
+
+  <aside class="side">
+    <div class="stepper"><div id="stepTab1">① 看这一期</div><div id="stepTab2">② 和上一期比</div></div>
+    <div id="bannerArea"></div>
+
+    <div class="panel" id="panel1">
+      <h3>这一期能看清吗？</h3>
+      <p class="lead">先只看这一期。观察范围（黄色虚线以内）的地面大部分能看清，就选“能看清”。</p>
+      <div class="chips"><button class="chip big good" data-clear="yes">能看清</button><button class="chip big bad" data-clear="no">看不清</button></div>
+      <div id="unclearBlock" hidden>
+        <div class="field"><span class="label">看不清的范围</span>
+          <div class="chips"><button class="chip" data-extent="partial">一部分</button><button class="chip" data-extent="full">整幅</button></div></div>
+        <div class="field"><span class="label">原因（可多选）</span><div class="chips" id="reasonChips"></div></div>
+        <div class="field"><label for="qOther">其他原因（可以不填）</label><input class="input" id="qOther" maxlength="200" placeholder="比如：右下角发灰，看不出地面"></div>
+        <div class="field" id="qBoxField" hidden><span class="label">在图上画框，圈出看不清的地方（可以画多个）</span>
+          <div class="drawtip"><button class="btn sm" id="qDraw">开始画框</button><span>在图上按住鼠标拖出一个框。框可以拖动、拉角改大小。</span></div>
+          <div class="boxlist" id="qBoxList"></div></div>
+      </div>
+      <div class="err" id="err1"></div>
+      <div class="actions"><button class="btn primary" id="save1">下一步：和上一期比</button></div>
+    </div>
+
+    <div class="panel" id="panel2" hidden>
+      <h3>和上一期比，有哪些明显不同？</h3>
+      <p class="lead">左边是上一期，右边是这一期，两边一起放大、一起移动。发现不同就画框，再选这个框是什么变化（可多选）。斜线区域是第一步圈出的看不清的地方。</p>
+      <div class="field"><span class="label">整体情况（可多选）</span>
+        <div class="chips"><button class="chip" data-overall="none">没有明显不同</button><button class="chip" data-overall="color">整体颜色或亮度变了</button></div></div>
+      <div class="field"><span class="label">画框标出每一处不同</span>
+        <div class="drawtip"><button class="btn sm" id="cDraw">开始画框</button><span>在左图或右图上拖出一个框，另一边会出现同一个框。</span></div>
+        <div class="boxlist" id="cBoxList"></div></div>
+      <div class="field"><label for="cOther">其他情况（可以不填）</label><input class="input" id="cOther" maxlength="300" placeholder="比如：河边新停了很多船"></div>
+      <div class="err" id="err2"></div>
+      <div class="actions"><button class="btn" id="back2">‹ 上一步</button><button class="btn primary" id="save2">保存，进入下一期</button></div>
+      <div class="legend"><span><i style="border:2px solid #ff4d4f"></i>你画的变化框</span><span><i style="background:repeating-linear-gradient(45deg,#495057 0 2px,#e9ecef 2px 4px)"></i>看不清的地方</span><span><i style="border-top:2px dashed #FFD43B"></i>观察范围</span><span><i style="border-top:2px dashed #FF922B"></i>铁路</span></div>
+    </div>
+
+    <div class="sidefoot">
+      <a class="btn sm" href="learn.html#atlas" target="_blank">打开图鉴</a>
+      <button class="btn sm" id="btnAsk">有疑问，提问</button>
+    </div>
+  </aside>
+</main>
+
+<div class="modal-back" id="listModal"><div class="modal" style="width:min(820px,calc(100vw - 32px))">
+  <div style="display:flex;align-items:center;gap:10px"><h3 style="margin:0">全部期次</h3><span class="tiny" id="listLegend"></span><span style="flex:1"></span><button class="btn sm" data-close>关闭</button></div>
+  <div class="plist" id="plist"></div>
+</div></div>
+
+<div class="modal-back" id="askModal"><div class="modal">
+  <h3>向组长提问</h3>
+  <p class="small muted">问题会自动带上这一期的日期，以及你选中的框。组长回答后，在“学习”页的常见问题里能看到。</p>
+  <textarea class="input" id="askText" maxlength="1000" placeholder="比如：框 2 这块颜色变浅了，是收割还是施工？"></textarea>
+  <div class="err" id="askErr"></div>
+  <div class="actions"><button class="btn" data-close>取消</button><button class="btn primary" id="askSend">发送</button></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="assets/js/work.js"></script>
+</body>
+</html>

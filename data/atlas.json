@@ -1,0 +1,276 @@
+{
+ "quality": [
+  {
+   "id": "q_full_cloud",
+   "site": "SG",
+   "site_name": "韶关南",
+   "title": "整幅看不清",
+   "desc": "云和雾把整幅影像都盖住了，地面几乎看不出来。",
+   "how": "选“看不清”→“整幅”→原因选“云”。这一期不用再比较，网页会记为“没法比较”。",
+   "images": [
+    {
+     "src": "img/atlas/q_full_cloud.png",
+     "label": "韶关南 2023-12-30"
+    }
+   ]
+  },
+  {
+   "id": "q_part_cloud",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "一部分被云挡住",
+   "desc": "左边和上边有白色云团，云旁边的地面是黑色的云影；右下半幅还看得清。",
+   "how": "选“看不清”→“一部分”，把白云和黑影画框圈出来。看得清的地方照常和上一期比较。",
+   "images": [
+    {
+     "src": "img/atlas/q_part_cloud.png",
+     "label": "衡阳北 2023-10-11"
+    }
+   ]
+  },
+  {
+   "id": "q_broken_cloud",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "碎云",
+   "desc": "很多小块白云散在各处，云边有彩色的边。",
+   "how": "云太碎、到处都是，就选“整幅”；只有几块，就选“一部分”并框出来。",
+   "images": [
+    {
+     "src": "img/atlas/q_broken_cloud.png",
+     "label": "衡阳北 2023-06-18"
+    }
+   ]
+  },
+  {
+   "id": "q_haze",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "雾 / 霾",
+   "desc": "整幅发灰、发白，对比度低，但地面的轮廓还能认出来。",
+   "how": "如果地面还能看清，就选“能看清”；看不清的地方选“雾 / 霾”并框出来。和上一期比时，整幅变灰不算地面变化。",
+   "images": [
+    {
+     "src": "img/atlas/q_haze.png",
+     "label": "衡阳北 2024-10-13"
+    }
+   ]
+  },
+  {
+   "id": "q_streak",
+   "site": "ZZ",
+   "site_name": "株洲南",
+   "title": "薄云条纹",
+   "desc": "右上方山体上有一条条发白的薄云。",
+   "how": "薄云下面还能看清就不用管；看不清的那几条画框，原因选“雾 / 霾”或“条纹”。",
+   "images": [
+    {
+     "src": "img/atlas/q_streak.png",
+     "label": "株洲南 2024-11-02"
+    }
+   ]
+  },
+  {
+   "id": "q_shadow",
+   "site": "SG",
+   "site_name": "韶关南",
+   "title": "云影",
+   "desc": "右下方山坡上有一大片发黑的区域，是云投下的影子，上方有一小块白云。",
+   "how": "云影下面看不清地面，选“阴影”，把黑块框出来。",
+   "images": [
+    {
+     "src": "img/atlas/q_shadow.png",
+     "label": "韶关南 2023-07-28"
+    }
+   ]
+  },
+  {
+   "id": "q_terrain",
+   "site": "ZZ",
+   "site_name": "株洲南",
+   "title": "冬天的山体阴影",
+   "desc": "冬天太阳低，山谷背阳的一面发黑，每年冬天都这样。",
+   "how": "山影一般还能看出地形，大部分能看清就选“能看清”。黑得看不见地面的地方再框出来，原因选“阴影”。",
+   "images": [
+    {
+     "src": "img/atlas/q_terrain.png",
+     "label": "株洲南 2023-02-21"
+    }
+   ]
+  },
+  {
+   "id": "q_missing",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "黑块 / 缺失",
+   "desc": "左侧有一块纯黑的三角形，边缘笔直，这是卫星没拍到的地方。",
+   "how": "选“看不清”→“一部分”，原因选“黑块 / 缺失”，把黑块框出来。",
+   "images": [
+    {
+     "src": "img/atlas/q_missing.png",
+     "label": "衡阳北 2024-11-09"
+    }
+   ]
+  },
+  {
+   "id": "q_glint",
+   "site": "ZZ",
+   "site_name": "株洲南",
+   "title": "河面反光",
+   "desc": "河面整片发白发亮，是太阳在水面上的反光，河本身没有变。",
+   "how": "株洲南的观察范围在铁路右侧的山上，河面反光不影响判读，一般选“能看清”。",
+   "images": [
+    {
+     "src": "img/atlas/q_glint.png",
+     "label": "株洲南 2024-08-04"
+    }
+   ]
+  }
+ ],
+ "changes": [
+  {
+   "id": "c_dig",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "裸土 / 施工 增加",
+   "desc": "西侧山坡上，原来的绿色植被被推平，变成一大片规则的橙红色裸土。",
+   "how": "画框圈出新出现的裸土，类别选“裸土 / 施工 增加”，同时可以选“植被 减少”。",
+   "images": [
+    {
+     "src": "img/atlas/c_dig_a.png",
+     "label": "前 2023-09-01"
+    },
+    {
+     "src": "img/atlas/c_dig_b.png",
+     "label": "后 2023-09-29"
+    }
+   ]
+  },
+  {
+   "id": "c_slope",
+   "site": "SG",
+   "site_name": "韶关南",
+   "title": "山坡清理",
+   "desc": "白色设施右边的山坡上，一片绿色变成了棕色裸土，和旁边原有的清理带连在一起。",
+   "how": "框出变棕黄的新范围，选“植被 减少”和“裸土 / 施工 增加”。已经存在的旧清理带不用框。",
+   "images": [
+    {
+     "src": "img/atlas/c_slope_a.png",
+     "label": "前 2023-10-16"
+    },
+    {
+     "src": "img/atlas/c_slope_b.png",
+     "label": "后 2023-11-20"
+    }
+   ]
+  },
+  {
+   "id": "c_road",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "道路 增加",
+   "desc": "原来只有一小段土路，一个多月后变成一条又直又长的橙红色新路，把两边的场地连了起来。",
+   "how": "沿着新路画一个长条框，类别选“道路 增加”。",
+   "images": [
+    {
+     "src": "img/atlas/c_road_a.png",
+     "label": "前 2024-05-28"
+    },
+    {
+     "src": "img/atlas/c_road_b.png",
+     "label": "后 2024-07-07"
+    }
+   ]
+  },
+  {
+   "id": "c_roof",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "建筑 增加",
+   "desc": "南部厂区里新出现几块白色、灰色的屋面，厂区在一步步盖房子。",
+   "how": "框出新屋顶，类别选“建筑 增加”。",
+   "images": [
+    {
+     "src": "img/atlas/c_roof_a.png",
+     "label": "前 2024-03-29"
+    },
+    {
+     "src": "img/atlas/c_roof_b.png",
+     "label": "后 2024-09-30"
+    }
+   ]
+  },
+  {
+   "id": "c_green",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "植被 增加（农田返青）",
+   "desc": "春天田里的庄稼长起来，一块块田变成鲜绿色。",
+   "how": "这是季节变化，也要记。框出变绿的田块，选“植被 增加”，可以在说明里写“农田返青”。",
+   "images": [
+    {
+     "src": "img/atlas/c_green_a.png",
+     "label": "前 2023-02-26"
+    },
+    {
+     "src": "img/atlas/c_green_b.png",
+     "label": "后 2023-03-10"
+    }
+   ]
+  },
+  {
+   "id": "c_harvest",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "植被 减少（收割、翻耕）",
+   "desc": "一个月后同一片田又变成棕色，庄稼收了或者地翻过了。",
+   "how": "同样要记。框出变棕的田块，选“植被 减少”，说明里写“收割或翻耕”。",
+   "images": [
+    {
+     "src": "img/atlas/c_harvest_a.png",
+     "label": "前 2023-03-15"
+    },
+    {
+     "src": "img/atlas/c_harvest_b.png",
+     "label": "后 2023-04-07"
+    }
+   ]
+  },
+  {
+   "id": "c_flood",
+   "site": "SG",
+   "site_name": "韶关南",
+   "title": "水面 扩大（洪水）",
+   "desc": "2022 年 6 月北江涨洪水，河面变宽、变成黄褐色，岸边低处被淹。（这一例不在 2023—2024 年里，用来说明水面变化长什么样。）",
+   "how": "框出河面变宽的地方，选“水面 扩大”。只是水变浑、岸线没动，不算水面扩大，可以写在“其他”里。",
+   "images": [
+    {
+     "src": "img/atlas/c_flood_a.png",
+     "label": "前 2022-04-09"
+    },
+    {
+     "src": "img/atlas/c_flood_b.png",
+     "label": "后 2022-06-23"
+    }
+   ]
+  },
+  {
+   "id": "c_overall",
+   "site": "HY",
+   "site_name": "衡阳北",
+   "title": "整体颜色变了（不画框）",
+   "desc": "三天后整幅影像变灰变淡，是雾霾，地面其实没有变。",
+   "how": "在第二步选“整体颜色或亮度变了”，不用画框；如果灰到看不清，第一步就该选“看不清”。",
+   "images": [
+    {
+     "src": "img/atlas/c_overall_a.png",
+     "label": "前 2024-10-10"
+    },
+    {
+     "src": "img/atlas/c_overall_b.png",
+     "label": "后 2024-10-13"
+    }
+   ]
+  }
+ ]
+}

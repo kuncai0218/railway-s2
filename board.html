@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实时看板 · 三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link" href="index.html">首页</a>
+  <a class="link" href="background.html">项目背景</a>
+  <a class="link" href="learn.html">学习</a>
+  <a class="link" href="work.html">判读</a>
+  <a class="link on" href="board.html">实时看板</a>
+  <a class="link" href="leader.html">组长台</a>
+  <span class="spacer"></span>
+  <span class="tiny" id="updated">正在读取…</span>
+</nav>
+<main class="page">
+  <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+    <h1 style="margin:0">实时看板</h1>
+    <span class="muted small">所有人都能看到。每 20 秒自动刷新。</span>
+    <span class="spacer" style="flex:1"></span>
+    <a class="btn sm" href="leader.html" id="qLink">待回答的问题：—</a>
+  </div>
+  <div class="legend-row">
+    <span><i style="background:#dfe3e9"></i>未开始</span><span><i style="background:#f2c26b"></i>只做了第一步</span>
+    <span><i style="background:#53b98b"></i>已完成，没有明显不同</span><span><i style="background:#ff6b6d"></i>已完成，有变化</span>
+    <span><i style="background:#8e97a6"></i>没法比较</span><span>点色块可跳到那一期，点地图上的框可看前后对比</span>
+  </div>
+  <div id="sites"></div>
+</main>
+
+<div class="modal-back pair-modal" id="pairModal"><div class="modal" style="width:min(860px,calc(100vw - 32px))">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><h3 style="margin:0" id="pmTitle"></h3><span style="flex:1"></span><a class="btn sm" id="pmOpen" href="#">去判读页查看</a><button class="btn sm" data-close>关闭</button></div>
+  <div class="pair"><div><img id="pmA" alt="上一期"><svg id="pmSa" viewBox="0 0 256 256"></svg><span id="pmLa"></span></div><div><img id="pmB" alt="这一期"><svg id="pmSb" viewBox="0 0 256 256"></svg><span id="pmLb"></span></div></div>
+  <div id="pmInfo" style="margin-top:10px;font-size:14px"></div>
+</div></div>
+<script type="module" src="assets/js/board.js"></script>
+</body>
+</html>
