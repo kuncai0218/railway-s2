@@ -80,6 +80,16 @@
 .rq-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; height: 420px; }
 .rq-pair .vbox { height: 100%; }
 .rq-detail { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+.rvblock { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 12px; background: #fcfcfd; }
+.rvblock .rvh { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.rvblock .actions { margin-top: 8px; }
+.timeline.t3 { height: 9px; margin: 0 0 4px; }
+.timeline.t3 a { background: transparent; }
+.timeline.t3 a.wait { background: #cfd5de; } .timeline.t3 a.open, .timeline.t3 a.returned { background: #f2b84b; }
+.timeline.t3 a.done { background: #74a7e8; } .timeline.t3 a.checked { background: #1e7a55; }
+.s3nums { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--sub); margin-top: 6px; }
+.s3nums b { color: var(--ink); }
+.scard .todo3 { color: #8a5300; font-weight: 600; }
 .hist { font-size: 13px; color: var(--sub); display: flex; flex-direction: column; gap: 6px; }
 .hist div { background: #f7f8fa; border-radius: 8px; padding: 6px 10px; }
 .qa { padding: 14px 16px; margin-bottom: 10px; }

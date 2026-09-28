@@ -1,11 +1,12 @@
 // Live board: progress, a colour strip per site, a map of every recorded change, and recent activity.
 import { selectAll } from './api.js';
-import { loadSites, loadPeriods, latestByScene, periodState, progress, fmtDate, fmtTime } from './store.js';
+import { loadSites, loadPeriods, latestByScene, periodState, progress, fmtDate, fmtTime, stepThree, reviewsByScene } from './store.js';
 import { SITE_ORDER, CHANGE_TAGS, OVERALL_NAME } from './config.js';
 
 const $ = id => document.getElementById(id);
 const TAG = Object.fromEntries(CHANGE_TAGS.map(t => [t.key, t.label]));
 const STATE_NAME = { todo: '未开始', half: '只做了第一步', done: '没有局部变化', changes: '有局部变化', uncomparable: '没法比较' };
+const S3_NAME = { wait: '第三步：等组长确认第二步', rejected: '组长认为不是变化', open: '第三步：待做', returned: '第三步：被退回，待修改', done: '第三步：等组长检查', checked: '第三步：已通过' };
 let sites, periods = {}, built = false;
 
 function boxRects(boxes, color = '#FF4D4F', attrs = '') {
@@ -24,7 +25,7 @@ function showPair(code, p, prev, data) {
   $('pairModal').classList.add('show');
 }
 
-function render(rows, questions, answers) {
+function render(rows, reviews, questions, answers) {
   const box = $('sites');
   if (!built) { box.innerHTML = ''; }
   for (const code of SITE_ORDER) {
@@ -32,6 +33,9 @@ function render(rows, questions, answers) {
     const per = periods[code];
     const rs = rows.filter(r => r.site === code);
     const latest = latestByScene(rs);
+    const rvs = reviewsByScene(reviews.filter(r => r.site === code));
+    const s3 = per.map(p => stepThree(p, latest[p.scene_id] || {}, rvs[p.scene_id] || []));
+    const n3 = s => s3.filter(x => x.state === s).length;
     const pr = progress(per, latest);
     const qOf = p => latest[p.scene_id]?.quality?.data;
     const unclear = per.filter(p => ['partial', 'no'].includes(qOf(p)?.clear)).length;
@@ -50,18 +54,24 @@ function render(rows, questions, answers) {
       const st = periodState(p, latest);
       return `<a class="${st}${p.role === 'baseline' ? ' base' : ''}" href="work.html?site=${code}#${i}" title="${i === 0 ? '第 0 期' : `第 ${i} 期`} ${p.date}：${STATE_NAME[st]}"></a>`;
     }).join('');
+    const cells3 = per.map((p, i) => {
+      const st = s3[i].state;
+      return `<a class="${st || ''}" href="work.html?site=${code}#${i}" title="${i === 0 ? '第 0 期' : `第 ${i} 期`} ${p.date}：${S3_NAME[st] || '不用做第三步'}"></a>`;
+    }).join('');
     const ref = per.find(p => p.date === ({ ZZ: '2023-03-05', HY: '2023-11-20', SG: '2023-11-20' })[code]) || per[1];
-    const changeRows = per.map(p => ({ p, c: latest[p.scene_id]?.compare })).filter(x => x.c?.data?.status === 'changes');
+    // step 2 as it stands after the leader's review; boxes the leader rejected are left out
+    const changeRows = per.map((p, i) => ({ p, c: s3[i].two.data && s3[i].two.verdict?.decision !== 'rejected' ? { data: s3[i].two.data } : null })).filter(x => x.c?.data?.status === 'changes');
     const rects = changeRows.map(({ p, c }) => (c.data.boxes || []).map(b =>
       `<rect x="${b.x0}" y="${b.y0}" width="${b.x1 - b.x0}" height="${b.y1 - b.y0}" fill="rgba(255,77,79,.18)" stroke="#FF4D4F" stroke-width="2" vector-effect="non-scaling-stroke" data-scene="${p.scene_id}"><title>${p.date}：${b.tags.map(t => TAG[t] || t).join('、')}</title></rect>`).join('')).join('');
     const counts = {};
     for (const { c } of changeRows) for (const b of c.data.boxes || []) for (const t of b.tags) counts[t] = (counts[t] || 0) + 1;
     const stats = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<span>${TAG[t] || t}<b>${n}</b></span>`).join('') || '<span class="tiny">还没有记录变化</span>';
-    const feed = rs.filter(r => r.kind === 'compare').slice(-12).reverse().map(r => {
+    const feed = rs.filter(r => r.kind === 'compare' || r.kind === 'precise').slice(-12).reverse().map(r => {
       const i = per.findIndex(p => p.scene_id === r.scene_id);
       const p = per[i];
       const d = r.data;
-      const what = d.deleted ? '删除了这一期的标注' : d.status === 'changes' ? `记录 ${d.boxes?.length || 0} 处不同` : d.status === 'uncomparable' ? '没法比较' : '没有明显不同';
+      let what = d.deleted ? '删除了这一期的标注' : d.status === 'changes' ? `记录 ${d.boxes?.length || 0} 处不同` : d.status === 'uncomparable' ? '没法比较' : '没有明显不同';
+      if (r.kind === 'precise') what = d.deleted ? '删除了第三步' : `完成第三步，涂了 ${(d.boxes || []).reduce((s, b) => s + (b.n1 || 0), 0)} 格变化`;
       return `<div class="it"><time>${fmtTime(r.created_at)}</time><span>第 ${i} 期 ${p ? p.date : ''} · ${what}</span></div>`;
     }).join('') || '<div class="tiny">还没有动态</div>';
     const mid = per[Math.floor(per.length / 2)];
@@ -71,7 +81,10 @@ function render(rows, questions, answers) {
         <div class="bs-nums"><span>已完成 <b>${pr.finished}</b> / ${pr.total} 期</span><span>有变化 <b>${pr.changes}</b> 期</span><span>整体模糊 <b>${blurry}</b> 期</span><span>有地方看不清 <b>${unclear}</b> 期</span></div>
         <a class="btn sm" href="work.html?site=${code}">进入判读</a></div>
       <div class="timeline">${cells}</div>
+      <div class="timeline t3">${cells3}</div>
       <div class="tl-axis"><span>${per[0].date}</span><span>${mid.date}</span><span>${per[per.length - 1].date}</span></div>
+      <div class="s3nums"><span>第三步（精确标注）：</span><span>已通过 <b>${n3('checked')}</b></span><span>等组长检查 <b>${n3('done')}</b></span>
+        <span>待做 <b>${n3('open') + n3('returned')}</b></span><span>等组长确认第二步 <b>${n3('wait')}</b></span></div>
       <div class="bs-body">
         <div class="cmap"><img src="${ref.tc}" alt="${s.name}"><svg viewBox="0 0 256 256" preserveAspectRatio="none">${rects}</svg></div>
         <div><h3 style="font-size:15px">各类变化</h3><div class="tagstats">${stats}</div>
@@ -80,7 +93,7 @@ function render(rows, questions, answers) {
     sec.querySelectorAll('rect[data-scene]').forEach(r => r.addEventListener('click', () => {
       const p = per.find(x => x.scene_id === r.dataset.scene);
       const prev = per[per.indexOf(p) - 1];
-      showPair(code, p, prev, latest[p.scene_id].compare.data);
+      showPair(code, p, prev, s3[per.indexOf(p)].two.data);
     }));
   }
   built = true;
@@ -91,10 +104,10 @@ function render(rows, questions, answers) {
 
 async function refresh() {
   try {
-    const [rows, questions, answers] = await Promise.all([selectAll('readings'), selectAll('questions'), selectAll('answers')]);
-    render(rows, questions, answers);
+    const [rows, reviews, questions, answers] = await Promise.all([selectAll('readings'), selectAll('reviews'), selectAll('questions'), selectAll('answers')]);
+    render(rows, reviews, questions, answers);
   } catch (err) {
-    if (!built) render([], [], []);
+    if (!built) render([], [], [], []);
     $('updated').textContent = '暂时连不上数据库，稍后自动重试';
   }
 }

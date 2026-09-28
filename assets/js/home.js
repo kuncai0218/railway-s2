@@ -1,6 +1,6 @@
 // Home page: site cards with live progress and today's totals.
 import { selectAll } from './api.js';
-import { loadSites, loadPeriods, latestByScene, progress } from './store.js';
+import { loadSites, loadPeriods, latestByScene, progress, stepThree, reviewsByScene } from './store.js';
 import { SITE_ORDER, SITE_INFO } from './config.js';
 
 const $ = id => document.getElementById(id);
@@ -17,9 +17,9 @@ async function main() {
   const sites = await loadSites();
   const periods = {};
   for (const c of SITE_ORDER) periods[c] = await loadPeriods(c);
-  let rows = [], questions = [], answers = [], online = true;
+  let rows = [], reviews = [], questions = [], answers = [], online = true;
   try {
-    [rows, questions, answers] = await Promise.all([selectAll('readings'), selectAll('questions'), selectAll('answers')]);
+    [rows, reviews, questions, answers] = await Promise.all([selectAll('readings'), selectAll('reviews'), selectAll('questions'), selectAll('answers')]);
   } catch { online = false; }
 
   const box = $('sites');
@@ -29,6 +29,8 @@ async function main() {
     const info = SITE_INFO[c];
     const latest = latestByScene(rows.filter(r => r.site === c));
     const pr = progress(periods[c], latest);
+    const rvs = reviewsByScene(reviews.filter(r => r.site === c));
+    const todo3 = periods[c].filter(p => ['open', 'returned'].includes(stepThree(p, latest[p.scene_id] || {}, rvs[p.scene_id] || []).state)).length;
     const ref = periods[c].find(p => p.date === info.refDate) || periods[c][1];
     const pct = Math.round(pr.finished / pr.total * 100);
     const card = document.createElement('article');
@@ -45,6 +47,7 @@ async function main() {
             <span>负责：${info.person || '待定'}</span>
             <span><b>${pr.finished}</b> / ${pr.total} 期已完成</span>
             <span>记录变化 ${pr.changes} 期</span>
+            ${todo3 ? `<span class="todo3">第三步待做 ${todo3} 期</span>` : ''}
             <span>${s.aoi ? '看铁路右侧山体（黄线内）' : '看整幅影像'}</span>
           </div>
         </div>

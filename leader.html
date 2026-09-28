@@ -21,12 +21,22 @@
   <span class="tiny" id="updated"></span>
 </nav>
 <main class="page" style="max-width:1400px">
-  <div class="tabs"><button data-tab="review" class="on">复核</button><button data-tab="questions">问题区 <span class="badge" id="qCount">0</span></button><button data-tab="export">导出</button></div>
+  <div class="tabs"><button data-tab="review" class="on">复核 <span class="badge warn" id="todoCount">0</span></button><button data-tab="questions">问题区 <span class="badge" id="qCount">0</span></button><button data-tab="export">导出</button></div>
 
   <section id="tab-review">
     <div class="filters">
       <select id="fSite"><option value="">全部测点</option></select>
       <select id="fType">
+        <optgroup label="要处理的">
+          <option value="confirm2">第二步待确认（有局部变化）</option>
+          <option value="check3">第三步待检查</option>
+        </optgroup>
+        <optgroup label="第三步">
+          <option value="open3">等同学做第三步</option>
+          <option value="returned3">第三步已退回</option>
+          <option value="checked3">第三步已通过</option>
+        </optgroup>
+        <optgroup label="按第一、二步的内容">
         <option value="changes">有变化</option>
         <option value="blurry">整体模糊，但还能看</option>
         <option value="partial">有些地方看不清</option>
@@ -36,6 +46,7 @@
         <option value="other">写了“说不清”或其他</option>
         <option value="reviewed">已复核</option>
         <option value="all">全部已做的期</option>
+        </optgroup>
       </select>
       <label class="small"><input type="checkbox" id="fUnreviewed" checked> 只看未复核</label>
       <button class="btn sm" id="btnSample">随机抽 5 期</button>
@@ -55,7 +66,8 @@
       <p class="muted small">导出的是数据库里的最新记录。表格文件可以直接用 Excel 打开。</p>
       <div style="display:flex;flex-direction:column;gap:12px;align-items:flex-start">
         <button class="btn primary" id="exPeriods">导出每一期的判读结果（表格）</button>
-        <button class="btn" id="exBoxes">导出全部变化框清单（表格，含坐标、类别和复核结论）</button>
+        <button class="btn" id="exBoxes">导出全部变化框清单（表格，含坐标、类别、复核结论和第三步格数）</button>
+        <button class="btn" id="exLabels">导出正式标注数据（JSON，给脚本生成变化检测标签用）</button>
         <button class="btn" id="exJson">导出完整备份（JSON，含所有历史版本）</button>
       </div>
       <p class="tiny" style="margin-top:14px">坐标说明：像元坐标以影像左上角为原点，x 向右、y 向下，单位为像元（10 米）；同时给出 EPSG:32649（UTM 49N）米制坐标。</p>

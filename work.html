@@ -24,6 +24,7 @@
   <div class="site-chip"><i id="siteColor"></i><span id="siteName">加载中</span></div>
   <div class="where"><b id="periodTitle"></b><span id="periodDate"></span><span id="periodGap"></span></div>
   <div class="wprog"><div class="progress"><i id="progBar" style="width:0"></i></div><span id="progText"></span></div>
+  <button class="btn p3" id="btnP3" hidden>第三步待做</button>
   <button class="btn" id="btnList">全部期次</button>
   <button class="btn" id="btnPrev">‹ 上一期</button>
   <button class="btn" id="btnNext">下一期 ›</button>
@@ -32,18 +33,20 @@
 <main class="wmain">
   <section class="stagebox">
     <div class="toolbar">
-      <div class="seg" id="segMode"><button data-mode="pan" class="on">拖动 / 缩放</button><button data-mode="draw">画框</button></div>
+      <div class="seg" id="segMode"><button id="modePan" class="on">拖动 / 缩放</button><button id="modeDraw">画框</button></div>
       <div class="seg" id="segImg"><button data-img="tc" class="on">真彩色</button><button data-img="fc">植被假彩色</button></div>
       <div class="seg" id="segShow"><button data-show="aoi" class="on">观察范围</button><button data-show="rail" class="on">铁路</button></div>
+      <div class="seg" id="segPaint" hidden><button id="togglePaint" class="on" title="键盘 H 也可以切换">涂色</button><button id="toggleGrid" class="on">格子线</button></div>
       <div class="seg"><button id="zin" title="放大">＋</button><button id="zout" title="缩小">－</button><button id="zfit" title="复原">复原</button></div>
-      <span class="hint">滚轮放大 · 按住拖动 · 双击复原 · 画框时按住空格可临时拖动</span>
+      <span class="hint" id="hint"></span>
     </div>
     <div class="views one" id="views1"><div class="vbox" id="v1"></div></div>
     <div class="views two" id="views2" hidden><div class="vbox" id="v2a"></div><div class="vbox" id="v2b"></div></div>
+    <div class="views two" id="views3" hidden><div class="vbox" id="v3a"></div><div class="vbox" id="v3b"></div></div>
   </section>
 
   <aside class="side">
-    <div class="stepper"><div id="stepTab1">① 看这一期</div><div id="stepTab2">② 和上一期比</div></div>
+    <div class="stepper"><div id="stepTab1">① 看这一期</div><div id="stepTab2">② 和上一期比</div><div id="stepTab3">③ 精确标注</div></div>
     <div id="bannerArea"></div>
 
     <div class="panel" id="panel1">
@@ -77,6 +80,27 @@
       <div class="err" id="err2"></div>
       <div class="actions"><button class="btn" id="back2">‹ 上一步</button><button class="btn primary" id="save2">保存，进入下一期</button></div>
       <div class="legend"><span><i style="border:2px solid #ff4d4f"></i>你画的变化框</span><span><i style="background:repeating-linear-gradient(45deg,#495057 0 2px,#e9ecef 2px 4px)"></i>看不清的地方</span><span><i style="border-top:2px dashed #FFD43B"></i>观察范围</span><span><i style="border-top:2px dashed #FF922B"></i>铁路</span></div>
+    </div>
+
+    <div class="panel" id="panel3" hidden>
+      <h3>精确标注：把变化的格子涂出来</h3>
+      <p class="lead">组长已经确认了第二步的框。放大以后会出现格子线，一格就是地面上 10 米 × 10 米。在每个框里，把真正变化的格子涂出来。左右两张图涂的是同一套格子，在哪边涂都可以。</p>
+      <div id="p3Note"></div>
+      <ul class="rules">
+        <li>一个格子<b>一多半</b>变了，就涂“变化”。</li>
+        <li>只涂变了的那一部分，框里没变的地方不涂。</li>
+        <li>分不清是不是变化、边界拿不准，涂“拿不准”。</li>
+        <li>框画得不对（太小、偏了、不该框），不要自己改，点下面的“有疑问，提问”告诉组长。</li>
+      </ul>
+      <div class="field"><span class="label">画笔</span>
+        <div class="brushes" id="brushes"><button data-brush="1"><i class="sw b1"></i>变化</button><button data-brush="2"><i class="sw b2"></i>拿不准</button><button data-brush="0"><i class="sw b0"></i>橡皮</button></div>
+        <div class="sizes" id="sizes"><span>画笔大小</span><button data-size="1">1 格</button><button data-size="2">2×2</button><button data-size="3">3×3</button></div></div>
+      <div class="field"><span class="label">这一期的框（一个一个涂，涂完点“下一个框”）</span>
+        <div class="boxlist" id="pBoxList"></div></div>
+      <div class="err" id="err3"></div>
+      <div class="actions"><button class="btn" id="back3">‹ 第二步</button><button class="btn" id="undo3" title="Ctrl + Z">撤销</button><button class="btn" id="next3">下一个框 ›</button></div>
+      <div class="actions" style="margin-top:8px"><button class="btn primary" id="save3">保存第三步</button></div>
+      <div class="legend"><span><i style="background:rgba(255,64,64,.7)"></i>变化</span><span><i style="background:rgba(255,196,0,.8)"></i>拿不准</span><span><i style="border:2px dashed #fff;background:#3d4656"></i>正在涂的框</span><span><i style="border-top:2px dashed #FFD43B"></i>观察范围</span></div>
     </div>
 
     <div class="sidefoot">

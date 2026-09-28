@@ -75,3 +75,31 @@ body.work { height: 100vh; display: flex; flex-direction: column; overflow: hidd
 .donecard .dl.rv { color: #5b3fb4; }
 .donecard .db { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .stepper div { cursor: pointer; }
+
+/* step 3 */
+.stepper { gap: 6px; }
+.stepper div { padding: 6px 6px; text-align: center; white-space: nowrap; }
+.stepper div.lock { opacity: .45; cursor: not-allowed; }
+.stepper div.todo { background: #fff4e0; color: #8a5300; font-weight: 600; }
+.btn.p3 { background: #fff4e0; border-color: #f0b44c; color: #8a5300; font-weight: 600; }
+.rules { margin: 0 0 4px; padding-left: 18px; font-size: 13px; }
+.rules li { margin: 2px 0; }
+.brushes { display: flex; gap: 6px; }
+.brushes button { flex: 1; height: 38px; border-radius: 8px; border: 1px solid var(--line); background: #fff; font: inherit; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.brushes button.on { border: 2px solid var(--ink); font-weight: 600; }
+.sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.sw.b1 { background: rgba(255, 64, 64, .75); } .sw.b2 { background: rgba(255, 196, 0, .85); } .sw.b0 { background: #fff; border: 1px dashed #8a93a3; }
+.sizes { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--sub); }
+.sizes span { margin-right: 2px; }
+.sizes button { height: 30px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+.sizes button.on { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.boxitem.p { cursor: pointer; }
+.boxitem.p .num { background: #2f6db5; }
+.boxitem.p.sel { border-color: #7fa9dc; box-shadow: 0 0 0 2px rgba(47, 109, 181, .15); background: #f7faff; }
+.boxitem .ptags { font-size: 13px; }
+.boxitem .pst { font-size: 12px; white-space: nowrap; }
+.boxitem .pst.ok { color: var(--ok); } .boxitem .pst.todo { color: #b26b00; }
+.boxitem .moved { color: var(--danger); font-weight: 700; }
+.boxitem .pbtns { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.plist small .s3 { color: #b26b00; }
