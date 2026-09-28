@@ -8,14 +8,6 @@ const TAG = Object.fromEntries(CHANGE_TAGS.map(t => [t.key, t.label]));
 const STATE_NAME = { todo: '未开始', half: '只做了第一步', done: '没有局部变化', changes: '有局部变化', uncomparable: '没法比较' };
 let sites, periods = {}, built = false;
 
-function eta(rowsSite, pr) {
-  const days = new Set(rowsSite.filter(r => r.kind === 'compare').map(r => new Date(r.created_at).toDateString()));
-  if (!days.size || !pr.finished) return '—';
-  const left = pr.total - pr.finished;
-  if (!left) return '已完成';
-  return `约 ${Math.ceil(left / (pr.finished / days.size))} 天`;
-}
-
 function boxRects(boxes, color = '#FF4D4F', attrs = '') {
   return boxes.map(b => `<rect x="${b.x0}" y="${b.y0}" width="${b.x1 - b.x0}" height="${b.y1 - b.y0}" fill="rgba(255,77,79,.12)" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" ${attrs}/>`).join('');
 }
@@ -69,14 +61,14 @@ function render(rows, questions, answers) {
       const i = per.findIndex(p => p.scene_id === r.scene_id);
       const p = per[i];
       const d = r.data;
-      const what = d.status === 'changes' ? `记录 ${d.boxes?.length || 0} 处不同` : d.status === 'uncomparable' ? '没法比较' : '没有明显不同';
+      const what = d.deleted ? '删除了这一期的标注' : d.status === 'changes' ? `记录 ${d.boxes?.length || 0} 处不同` : d.status === 'uncomparable' ? '没法比较' : '没有明显不同';
       return `<div class="it"><time>${fmtTime(r.created_at)}</time><span>第 ${i} 期 ${p ? p.date : ''} · ${what}</span></div>`;
     }).join('') || '<div class="tiny">还没有动态</div>';
     const mid = per[Math.floor(per.length / 2)];
     sec.innerHTML = `<a id="${code}"></a>
       <div class="bs-head"><h2><i style="background:${s.color}"></i>${s.name}</h2>
         <div class="progress"><i style="width:${Math.round(pr.finished / pr.total * 100)}%;background:${s.color}"></i></div>
-        <div class="bs-nums"><span>已完成 <b>${pr.finished}</b> / ${pr.total} 期</span><span>有变化 <b>${pr.changes}</b> 期</span><span>整体模糊 <b>${blurry}</b> 期</span><span>有地方看不清 <b>${unclear}</b> 期</span><span>预计还需 <b>${eta(rs, pr)}</b></span></div>
+        <div class="bs-nums"><span>已完成 <b>${pr.finished}</b> / ${pr.total} 期</span><span>有变化 <b>${pr.changes}</b> 期</span><span>整体模糊 <b>${blurry}</b> 期</span><span>有地方看不清 <b>${unclear}</b> 期</span></div>
         <a class="btn sm" href="work.html?site=${code}">进入判读</a></div>
       <div class="timeline">${cells}</div>
       <div class="tl-axis"><span>${per[0].date}</span><span>${mid.date}</span><span>${per[per.length - 1].date}</span></div>

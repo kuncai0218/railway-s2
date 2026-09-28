@@ -60,7 +60,7 @@ async function main() {
     return;
   }
   const todays = rows.filter(r => new Date(r.created_at).toDateString() === today());
-  const doneToday = new Set(todays.filter(r => r.kind === 'compare').map(r => r.site + r.scene_id));
+  const doneToday = new Set(todays.filter(r => r.kind === 'compare' && !r.data?.deleted).map(r => r.site + r.scene_id));
   $('tDone').textContent = doneToday.size;
   $('tChanges').textContent = todays.filter(r => r.kind === 'compare' && r.data?.status === 'changes').reduce((n, r) => n + (r.data.boxes?.length || 0), 0);
   const answered = new Set(answers.map(a => a.question_id));

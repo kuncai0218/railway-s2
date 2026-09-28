@@ -26,7 +26,7 @@ export function latestByScene(rows) {
   const latest = {};
   for (const r of rows) {
     const slot = latest[r.scene_id] || (latest[r.scene_id] = {});
-    slot[r.kind] = r;
+    slot[r.kind] = r.data?.deleted ? undefined : r;   // a deletion is stored as a new "deleted" version
   }
   return latest;
 }

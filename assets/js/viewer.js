@@ -174,6 +174,8 @@ class Viewer {
     const hs = 7 / s;
     const sel = layer.boxes.find(b => b.id === this.scene.selected);
     if (sel) {
+      const dx = sel.x1 + 10 / s, dy = sel.y0 - 10 / s;
+      if (Math.hypot(p.x - dx, p.y - dy) <= 9 / s) return { box: sel, handle: 'del' };
       const xs = { w: sel.x0, c: (sel.x0 + sel.x1) / 2, e: sel.x1 };
       const ys = { n: sel.y0, m: (sel.y0 + sel.y1) / 2, s: sel.y1 };
       const handles = { nw: [xs.w, ys.n], n: [xs.c, ys.n], ne: [xs.e, ys.n], e: [xs.e, ys.m], se: [xs.e, ys.s], s: [xs.c, ys.s], sw: [xs.w, ys.s], w: [xs.w, ys.m] };
@@ -196,7 +198,8 @@ class Viewer {
     if (this.drag?.type === 'pan') c = 'grabbing';
     if (p && !sc._spaceDown) {
       const h = this.hit(p);
-      if (h) c = h.handle ? ({ n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' })[h.handle] : 'move';
+      if (h?.handle === 'del') c = 'pointer';
+      else if (h) c = h.handle ? ({ n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' })[h.handle] : 'move';
     }
     this.box.style.cursor = c;
   }
@@ -217,6 +220,12 @@ class Viewer {
       const panWanted = ev.button === 1 || ev.button === 2 || sc._spaceDown;
       const h = panWanted ? null : this.hit(p);
       const layer = sc.editableLayer();
+      if (h?.handle === 'del') {
+        sc.selected = h.box.id;
+        sc.deleteSelected();
+        this.drag = null;
+        return;
+      }
       if (h) {
         sc.select(h.box.id);
         this.drag = { type: h.handle ? 'resize' : 'move', handle: h.handle, start: p, orig: { ...h.box }, box: h.box, moved: false };
@@ -323,6 +332,10 @@ class Viewer {
         const t = el('text', { x: b.x0 + 4 / scale, y: b.y0 - 4 / scale, 'font-size': fs, fill: '#fff', 'font-family': 'Arial, sans-serif', 'font-weight': 'bold' }, this.gBoxes);
         t.textContent = lab;
         if (sel) {
+          const cx = b.x1 + 10 / scale, cy = b.y0 - 10 / scale;
+          el('circle', { cx, cy, r: 8 / scale, fill: '#FF4D4F', stroke: '#fff', 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
+          const x = el('text', { x: cx, y: cy + 4 / scale, 'font-size': 13 / scale, fill: '#fff', 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif', 'font-weight': 'bold' }, this.gBoxes);
+          x.textContent = '×';
           const hs = 6 / scale;
           const xs = [b.x0, (b.x0 + b.x1) / 2, b.x1], ys = [b.y0, (b.y0 + b.y1) / 2, b.y1];
           for (const hx of xs) for (const hy of ys) {

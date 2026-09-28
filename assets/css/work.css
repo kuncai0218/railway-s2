@@ -67,3 +67,11 @@ body.work { height: 100vh; display: flex; flex-direction: column; overflow: hidd
 .qopt.on.l-blurry { border-color: #d9a21b; background: #fdf6e3; }
 .qopt.on.l-partial { border-color: #e8772e; background: #fdf0e6; }
 .qopt.on.l-no { border-color: #9aa3b2; background: #f1f3f6; }
+
+.donecard { border: 1px solid #cfe9df; background: #f5fbf8; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; }
+.donecard .dh { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.donecard .dl { display: flex; gap: 8px; margin: 3px 0; }
+.donecard .dl span { flex: none; color: var(--sub); width: 42px; }
+.donecard .dl.rv { color: #5b3fb4; }
+.donecard .db { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.stepper div { cursor: pointer; }

@@ -1,8 +1,8 @@
 // Reading workbench: step 1 = is this image readable, step 2 = what changed since the previous image.
 import { Scene } from './viewer.js';
-import { append, onQueueChange, pendingRows, uuid } from './api.js';
-import { loadSites, loadPeriods, loadReadings, latestByScene, periodState, progress, fmtDate } from './store.js';
-import { QUALITY_REASONS, CHANGE_TAGS, QUALITY_LEVELS, OVERALL } from './config.js';
+import { append, onQueueChange, pendingRows, uuid, selectAll } from './api.js';
+import { loadSites, loadPeriods, loadReadings, latestByScene, periodState, progress, fmtDate, fmtTime } from './store.js';
+import { QUALITY_REASONS, CHANGE_TAGS, QUALITY_LEVELS, OVERALL, QUALITY_NAME, OVERALL_NAME } from './config.js';
 
 const $ = id => document.getElementById(id);
 const query = new URLSearchParams(location.search);
@@ -13,7 +13,8 @@ const clone = x => JSON.parse(JSON.stringify(x));
 const emptyQ = () => ({ clear: null, reasons: [], other: '', boxes: [], also_blurry: false });
 const emptyC = () => ({ overall: [], other: '', boxes: [] });
 
-let site, periods, rows = [], latest = {};
+let site, periods, rows = [], latest = {}, reviews = [];
+let editing = false;   // the open period was already finished: saving keeps you on it
 let k = 0, step = 1, q = emptyQ(), c = emptyC(), imgKind = 'tc';
 
 const scene1 = new Scene();
@@ -35,10 +36,11 @@ function toast(msg) {
 const cur = () => periods[k];
 const prevPeriod = () => periods[k - 1] || null;
 const draftKey = kind => `rs2_${practice ? 'pdraft' : 'draft'}_${code}_${cur().scene_id}_${kind}`;
+// Only the step being edited keeps a draft, so a finished step never looks "unsaved".
 function saveDraft() {
   try {
-    localStorage.setItem(draftKey('quality'), JSON.stringify(q));
-    if (cur().role === 'task') localStorage.setItem(draftKey('compare'), JSON.stringify(c));
+    if (step === 1) localStorage.setItem(draftKey('quality'), JSON.stringify(q));
+    else if (cur().role === 'task') localStorage.setItem(draftKey('compare'), JSON.stringify(c));
   } catch { /* storage full or blocked: the server copy is the real record */ }
 }
 function readDraft(kind) { try { return JSON.parse(localStorage.getItem(draftKey(kind))); } catch { return null; } }
@@ -189,11 +191,11 @@ async function onSave1() {
     const data = cleanQ();
     await saveRow('quality', data);
     const p = cur();
-    if (p.role === 'baseline') { toast('已保存'); goTo(k + 1); return; }
+    if (p.role === 'baseline') { toast(editing ? '已保存修改' : '已保存'); goTo(editing ? k : k + 1); return; }
     if (data.clear === 'no') {
       await saveRow('compare', { status: 'uncomparable', reason: 'current_unclear' });
-      toast('已保存：这一期基本看不清，记为没法比较');
-      goTo(k + 1);
+      toast(editing ? '已保存修改：这一期基本看不清，记为没法比较' : '已保存：这一期基本看不清，记为没法比较');
+      goTo(editing ? k : k + 1);
       return;
     }
     renderHeader();
@@ -208,7 +210,7 @@ function prevQuality() { const pp = prevPeriod(); return pp ? latest[pp.scene_id
 
 function renderPanel2() {
   const pq = prevQuality();
-  const banner = $('bannerArea');
+  const banner = $('pairNote');
   banner.innerHTML = '';
   const prevFull = pq && pq.clear === 'no';
   if (!pq) banner.innerHTML = '<div class="notice warn">上一期还没判断能不能看清。建议先回到上一期完成第一步。</div>';
@@ -286,6 +288,7 @@ async function onSave2() {
       data = { status: boxes.length ? 'changes' : 'none', overall, other: c.other.trim(), boxes };
     }
     await saveRow('compare', data);
+    if (editing) { toast('已保存修改'); goTo(k); return; }
     toast(data.status === 'changes' ? `已保存，记录了 ${data.boxes.length} 处不同` : '已保存');
     goTo(k + 1);
   } catch (err) {
@@ -299,7 +302,9 @@ function loadForms() {
   const l = latest[p.scene_id] || {};
   q = readDraft('quality') || (l.quality ? clone(l.quality.data) : emptyQ());
   q = { ...emptyQ(), ...q };
-  c = readDraft('compare') || (l.compare && l.compare.data.status !== 'uncomparable' ? clone(l.compare.data) : emptyC());
+  const rv = lastReview(p.scene_id, 'compare');
+  const base = rv?.decision === 'modified' && rv.data && (!l.compare || rv.created_at > l.compare.created_at) ? rv.data : l.compare?.data;
+  c = readDraft('compare') || (base && base.status !== 'uncomparable' ? clone(base) : emptyC());
   c = { ...emptyC(), ...c };
   c.boxes.forEach(b => { b.tags = b.tags || []; b.note = b.note || ''; });
 }
@@ -318,10 +323,86 @@ function goTo(n) {
   renderImages();
   const st = stateOf(cur());
   const l = latest[cur().scene_id] || {};
-  $('bannerArea').innerHTML = '';
-  if (st !== 'todo' && st !== 'half') $('bannerArea').innerHTML = '<div class="notice">这一期已经做过了。可以修改后重新保存，旧记录会保留。</div>';
-  const startStep2 = cur().role === 'task' && l.quality && !l.compare && !readDraft('quality');
+  editing = st !== 'todo' && st !== 'half';
+  renderDoneCard();
+  const canStep2 = cur().role === 'task' && l.quality && l.quality.data.clear !== 'no';
+  const startStep2 = canStep2 && !readDraft('quality') && (!l.compare || (editing && l.compare.data.status !== 'uncomparable'));
   setStep(startStep2 ? 2 : 1);
+}
+
+function lastReview(sceneId, kind) {
+  const rs = reviews.filter(r => r.scene_id === sceneId && r.kind === kind);
+  return rs[rs.length - 1] || null;
+}
+
+function describeQ(d) {
+  if (!d) return '还没做';
+  let t = QUALITY_NAME[d.clear] || d.clear;
+  if (d.clear !== 'yes') t += `（${[...(d.reasons || []), d.other].filter(Boolean).join('、') || '未写原因'}）`;
+  if (d.boxes?.length) t += `，圈了 ${d.boxes.length} 处`;
+  return t;
+}
+function describeC(d) {
+  if (!d) return '还没做';
+  if (d.status === 'uncomparable') return '没法比较';
+  const parts = (d.overall || []).filter(o => o !== 'local').map(o => OVERALL_NAME[o] || o);
+  if (d.boxes?.length) parts.unshift(`${d.boxes.length} 处局部变化`);
+  return parts.join('、') || '没有明显不同';
+}
+
+// Card shown on a finished period: what was saved, who reviewed it, and buttons to change it.
+function renderDoneCard() {
+  const box = $('bannerArea');
+  if (!editing) { box.innerHTML = ''; return; }
+  const p = cur();
+  const l = latest[p.scene_id] || {};
+  const versions = rows.filter(r => r.scene_id === p.scene_id).length;
+  const lastAt = [l.quality, l.compare].filter(Boolean).map(r => r.created_at).sort().pop();
+  const rv = [...reviews].reverse().find(r => r.scene_id === p.scene_id);
+  const DEC = { confirmed: '组长已确认', rejected: '组长认为不是变化', modified: '组长修改过这一期', note: '组长写了批注' };
+  box.innerHTML = `<div class="donecard">
+    <div class="dh"><span class="badge ok">已完成</span><span class="tiny">最后保存 ${lastAt ? fmtTime(lastAt) : ''} · 共保存 ${versions} 次</span></div>
+    <div class="dl"><span>第一步</span>${describeQ(l.quality?.data)}</div>
+    ${p.role === 'task' ? `<div class="dl"><span>第二步</span>${describeC(l.compare?.data)}</div>` : ''}
+    ${rv ? `<div class="dl rv"><span>组长</span>${DEC[rv.decision] || ''}${rv.comment ? `：${rv.comment.replace(/</g, '&lt;')}` : ''}</div>` : ''}
+    <div class="db"><button class="btn sm" data-edit="1">修改第一步</button>${p.role === 'task' && l.quality?.data.clear !== 'no' ? '<button class="btn sm" data-edit="2">修改第二步</button>' : ''}
+      <button class="btn sm ghost" data-next>下一个没做的期 ›</button><button class="btn sm ghost danger" data-del>删除这一期的标注</button></div>
+    <div class="tiny" style="margin-top:6px">改完点下面的保存按钮就行，旧记录会保留。</div></div>`;
+  box.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => setStep(Number(b.dataset.edit)));
+  box.querySelector('[data-del]').onclick = deletePeriod;
+  box.querySelector('[data-next]').onclick = () => {
+    const after = periods.findIndex((x, i) => i > k && ['todo', 'half'].includes(stateOf(x)));
+    const any = periods.findIndex(x => ['todo', 'half'].includes(stateOf(x)));
+    const n = after >= 0 ? after : any;
+    if (n >= 0) goTo(n); else toast('这一站全部做完了');
+  };
+}
+
+// Deleting appends a "deleted" version for each step; the old versions stay in the database.
+async function deletePeriod() {
+  const p = cur();
+  if (!confirm(`确定删除第 ${k} 期（${p.date}）的标注吗？\n删除后这一期会变回“未开始”，需要重新判读。`)) return;
+  const l = latest[p.scene_id] || {};
+  try {
+    for (const kind of ['quality', 'compare']) {
+      if (l[kind]) await saveRow(kind, { deleted: true });
+      clearDraft(kind);
+    }
+    toast('已删除这一期的标注');
+    goTo(k);
+  } catch (err) { toast(err.message); }
+}
+
+function clearBoxes(which) {
+  const list = which === 1 ? q.boxes : c.boxes;
+  if (!list.length) return;
+  if (!confirm('确定清空这一步的所有框吗？')) return;
+  list.splice(0, list.length);
+  const sc = which === 1 ? scene1 : scene2;
+  sc.selected = null;
+  sc.render();
+  saveDraft();
+  if (which === 1) renderQBoxList(); else renderCBoxList();
 }
 
 function firstOpen() {
@@ -424,6 +505,15 @@ function wire() {
   $('zout').onclick = () => active().zoomBy(1 / 1.4);
   $('zfit').onclick = () => active().fit();
   window.addEventListener('resize', () => active().fit());
+  $('qClear').onclick = () => clearBoxes(1);
+  $('cClear').onclick = () => clearBoxes(2);
+  $('stepTab1').onclick = () => { if (step !== 1) setStep(1); };
+  $('stepTab2').onclick = () => {
+    const l = latest[cur().scene_id] || {};
+    if (step === 2 || cur().role !== 'task') return;
+    if (!l.quality || l.quality.data.clear === 'no') { toast('先完成第一步，并且这一期要能看清一部分'); return; }
+    setStep(2);
+  };
   $('btnPrev').onclick = () => goTo(k - 1);
   $('btnNext').onclick = () => goTo(k + 1);
   $('btnList').onclick = () => { renderList(); $('listModal').classList.add('show'); };
@@ -463,6 +553,7 @@ async function init() {
   } else {
     const res = await loadReadings(code);
     rows = res.rows;
+    try { reviews = await selectAll('reviews', { site: `eq.${code}` }); } catch { reviews = []; }
     recompute();
     if (!res.online) { const b = $('saveState'); b.className = 'badge danger'; b.textContent = '连不上服务器，记录会先存在本机'; }
     else setSaveBadge(pendingRows().length);

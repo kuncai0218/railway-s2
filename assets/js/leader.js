@@ -147,7 +147,7 @@ function openReview(keepWork = false) {
   $('rvAnswers').innerHTML = `<div class="notice" style="margin-bottom:8px">${qText}<br>${cText}</div>`;
   renderBoxes();
   const hist = [
-    ...rows.filter(r => r.site === code && r.scene_id === p.scene_id).map(r => ({ t: r.created_at, s: `同学保存${r.kind === 'quality' ? '第一步' : '第二步'}` })),
+    ...rows.filter(r => r.site === code && r.scene_id === p.scene_id).map(r => ({ t: r.created_at, s: `${r.data?.deleted ? '删除了' : '保存了'}${r.kind === 'quality' ? '第一步' : '第二步'}` })),
     ...reviewsOf(code, p.scene_id).map(r => ({ t: r.created_at, s: `组长：${DEC[r.decision]}${r.comment ? ` —— ${esc(r.comment)}` : ''}` })),
   ].sort((a, b) => a.t.localeCompare(b.t));
   $('rvHist').innerHTML = hist.map(h => `<div>${fmtTime(h.t)}　${h.s}</div>`).join('') || '<div>暂无</div>';

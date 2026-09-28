@@ -56,6 +56,7 @@
         <div class="field" id="qBoxField" hidden><span class="label">在图上画框，圈出看不清的地方（可以画多个）</span>
           <div class="drawtip"><button class="btn sm" id="qDraw">开始画框</button><span>在图上按住鼠标拖出一个框。框可以拖动、拉角改大小。</span></div>
           <div class="boxlist" id="qBoxList"></div>
+          <button class="btn sm ghost danger" id="qClear" style="margin-top:6px">清空所有框</button>
           <label class="small" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="qAlso"> 其余地方也有点模糊</label></div>
       </div>
       <div class="err" id="err1"></div>
@@ -65,11 +66,13 @@
     <div class="panel" id="panel2" hidden>
       <h3>和上一期比，有哪些明显不同？</h3>
       <p class="lead">左边是上一期，右边是这一期，两边一起放大、一起移动。先在“不同点”里勾选你看到的情况；地面上某个地方变了，就画框标出来，再给框选是什么变化。斜线区域是第一步圈出的看不清的地方。</p>
+      <div id="pairNote"></div>
       <div id="blurNote"></div>
       <div class="field"><span class="label">不同点（可多选）</span><div class="chips" id="overallChips"></div></div>
       <div class="field"><span class="label">画框标出地面的每一处局部变化</span>
         <div class="drawtip"><button class="btn sm" id="cDraw">开始画框</button><span>在左图或右图上拖出一个框，另一边会出现同一个框。</span></div>
-        <div class="boxlist" id="cBoxList"></div></div>
+        <div class="boxlist" id="cBoxList"></div>
+        <button class="btn sm ghost danger" id="cClear" style="margin-top:6px">清空所有框</button></div>
       <div class="field"><label for="cOther">其他情况（可以不填）</label><input class="input" id="cOther" maxlength="300" placeholder="比如：河边新停了很多船"></div>
       <div class="err" id="err2"></div>
       <div class="actions"><button class="btn" id="back2">‹ 上一步</button><button class="btn primary" id="save2">保存，进入下一期</button></div>
