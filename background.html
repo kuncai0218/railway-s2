@@ -19,63 +19,64 @@
   <span class="spacer"></span>
 </nav>
 <main class="page article">
-  <h1>项目背景</h1>
-  <p class="muted">大约 10 分钟。读完你会知道：我们为什么要看这些卫星影像，你做的记录最后会用来做什么。</p>
+  <h1>项目背景：三个测点</h1>
+  <p class="muted">大约 10 分钟。读完你会知道：三个测点是什么样的地方，这三个点一共要做哪些研究，我们这一步做什么，以及要看多少期影像。</p>
 
   <section class="card">
-    <h2><span class="no">1</span>铁路怕什么</h2>
-    <p>京广线在湖南、广东有很长的路段是贴着山、沿着河修的。一场暴雨下来，铁路上方的山坡可能滑坡、崩塌，沟里可能冲下泥石流，坡面被冲刷；如果山上正在施工，推开的红土会被雨水冲到线路上。这些都叫“水害”。广州铁路集团整理了 2011 年以来的历史水害记录，一共有一千一百多条。</p>
-    <p>很多水害在发生之前，地面就已经有变化了：山坡上的树被砍掉、露出一片裸土；新修了一条路；有人在铁路上方开挖、堆土。如果能早一点发现这些变化，巡检人员就能提前去看。</p>
-    <div class="grid2">
+    <h2><span class="no">1</span>三个测点的情况</h2>
+    <p>三个测点都在京广线上，是铁路方关心的重点地段：铁路贴着山坡，上方的山体一旦出现裸露、开挖、滑塌，下雨时就可能影响线路。卫星能每隔几天把整片山拍一遍，正好用来补充人工巡检和无人机看不到或飞不了的地方。</p>
+    <div class="grid3" id="siteCards"></div>
+    <div class="grid2" style="margin-top:14px">
       <figure><img src="img/photos/ZZ_detail.jpg" alt="株洲南现场"><figcaption>株洲南现场：铁路旁是连续的长大边坡，上方就是山体。</figcaption></figure>
       <figure><img src="img/photos/HY_detail.jpg" alt="衡阳北现场"><figcaption>衡阳北现场：铁路上方有大片红土施工区，下雨时泥沙会往下冲。</figcaption></figure>
     </div>
+    <figure><img src="img/photos/SG_overview.jpg" alt="韶关南全景"><figcaption>韶关南全景：北江在这里转弯，铁路一侧贴着山坡，山坡上修了大面积护坡。</figcaption></figure>
   </section>
 
   <section class="card">
-    <h2><span class="no">2</span>为什么用卫星</h2>
-    <p>铁路现在主要靠人工巡检和无人机。它们看得很细，但一次能看的范围有限，有些地方还是无人机禁飞区。铁路方希望卫星来补上这几块：<b>高陡的长大边坡、铁路上方的山体、无人机飞不了的地方</b>，而且要看和铁路有地形联系的整片坡面，不只是铁路边上那一条。</p>
-    <p>我们用的是欧洲航天局的 Sentinel-2 卫星影像，免费、覆盖全球。两颗卫星轮流拍，这三个地方平均几天就有一期；被云完全遮住的日期大多已经去掉了。这次用的是 <b>2023—2024 年</b>，三个测点一共 176 期。它的缺点是不够细，一个小方格是 10 米，所以我们要看的是“一片地”的变化，而不是一棵树、一块石头。</p>
-    <div class="callout">卫星看得不如无人机细，但它能每隔几天把整片山都拍一遍，还能回头看过去几年的样子。这正是我们要利用的地方。</div>
-  </section>
-
-  <section class="card">
-    <h2><span class="no">3</span>三个测点</h2>
-    <p>三个测点都在京广线上。株洲南和韶关南的铁路贴着山、临着河，我们只看<b>铁路右侧靠山的那一面</b>；衡阳北上方是大片施工区，看<b>整幅影像</b>。</p>
-    <div class="grid3" id="siteCards"></div>
-    <figure><img src="img/photos/SG_overview.jpg" alt="韶关南全景"><figcaption>韶关南全景：北江在这里转弯，铁路一侧贴着山坡，山坡上修了大面积的护坡。</figcaption></figure>
-  </section>
-
-  <section class="card">
-    <h2><span class="no">4</span>整个项目怎么做</h2>
-    <p>整个项目分几步走。你们现在做的是第二步，也是后面所有工作的基础。</p>
-    <div class="flow">
-      <div class="fs"><b>① 卫星影像</b>三个测点、两年、176 期，按时间排好</div><span class="fa">›</span>
-      <div class="fs here"><b>② 逐期判读（你在这里）</b>每一期看清不清、和上一期比有哪些不同</div><span class="fa">›</span>
-      <div class="fs"><b>③ 精细标注</b>组长复核后，把确认的变化画成精确的范围</div><span class="fa">›</span>
-      <div class="fs"><b>④ 训练电脑识别</b>用这些样本训练模型，让电脑自动找变化</div><span class="fa">›</span>
-      <div class="fs"><b>⑤ 核实和应用</b>用高分辨率影像、无人机核实，再给铁路方参考</div>
+    <h2><span class="no">2</span>三个测点一共要做哪些事</h2>
+    <p>围绕这三个点，项目要用卫星影像回答四个问题：</p>
+    <div class="grid2">
+      <div class="callout" style="margin:0"><b>地面是什么</b><br>把影像上的每一块认出来：水、植被、耕地、裸土、建筑。这部分已经做过一轮，有 99 期人工标注的样本。</div>
+      <div class="callout" style="margin:0"><b>哪里变了</b><br>比较前后两期，找出地面真正发生变化的地方，比如新开挖、新修路、新盖房、山坡植被被清掉。</div>
+      <div class="callout" style="margin:0"><b>变化是不是真的</b><br>云、雾、阴影、河面反光会让影像看起来变了，其实地面没变。要把这些“假变化”和真变化分开。</div>
+      <div class="callout" style="margin:0"><b>河边有没有变</b><br>株洲南、韶关南紧挨着河，还要看水面范围和河岸线的变化。</div>
     </div>
-    <p>项目里还有两件和你相关的事：一是<b>“伪变化”</b>，比如云、雾、阴影、河面反光会让影像看起来变了，其实地面没变，电脑很容易被骗，所以我们要把“看不清”单独记下来；二是<b>河岸线</b>，铁路方也关心河边的水面和岸线有没有变化。</p>
+    <p style="margin-top:14px">之后会挑出重点位置，买更清楚的高分辨率影像来核实，再用整理好的样本训练电脑自动识别。这些都要有一个前提：<b>先知道每一期、每个地方到底有没有变化</b>。</p>
   </section>
 
   <section class="card">
-    <h2><span class="no">5</span>你的判读有什么用</h2>
-    <p>你记下的每一个框、每一句说明，组长复核后都会变成训练数据。电脑学得好不好，取决于这些数据准不准。所以：</p>
+    <h2><span class="no">3</span>我们这一步做什么</h2>
+    <p>我们要把三个测点的影像按时间一期一期看过去，每一期做两件事：</p>
+    <div class="flow">
+      <div class="fs here"><b>① 这一期能看清吗</b>有云、雾、阴影、黑块的地方画框圈出来</div><span class="fa">›</span>
+      <div class="fs here"><b>② 和上一期比，有哪些明显不同</b>把每一处不同画框，选是什么变化</div><span class="fa">›</span>
+      <div class="fs"><b>组长复核</b>确认、修改，整理成正式的变化样本</div>
+    </div>
+    <p>“哪里变了”靠第 ② 步，“变化是不是真的”靠第 ① 步记下的看不清的地方。所以两步都很重要：</p>
     <ul>
-      <li><b>看不清就说看不清。</b>被云挡住的地方，不知道就是不知道，别猜。</li>
-      <li><b>拿不准也要记。</b>选“有差别，但说不清是什么”并写一句，比漏掉有用得多。</li>
-      <li><b>季节变化也记。</b>庄稼、树叶的变化是真实的地面变化，后面会单独分析。</li>
-      <li><b>不用判断风险。</b>是不是灾害、危不危险，是后面的工作，现在只记“看到了什么”。</li>
+      <li><b>看不清就说看不清</b>，被挡住的地方不要猜。</li>
+      <li><b>拿不准也要记</b>，选“有差别，但说不清是什么”，写一句你看到的样子。</li>
+      <li><b>季节变化也记</b>，庄稼返青、收割都是真实的地面变化。</li>
+      <li><b>不用判断风险</b>，现在只记“看到了什么”。</li>
     </ul>
+  </section>
+
+  <section class="card">
+    <h2><span class="no">4</span>一共有多少影像，第一期先做多少</h2>
+    <p>我们手上有三个测点 <b>2021 年 7 月到 2026 年 7 月</b>的 Sentinel-2 卫星影像，一共 <b>513 期</b>，被云完全遮住的日期大多已经去掉了。第一期先做 <b>2023—2024 年</b>这两年，一共 <b>176 期</b>，做完再往前、往后扩展。</p>
+    <div id="countTable"></div>
+    <p class="small muted" style="margin-top:10px">每个测点另有一张 2022 年最后一期的影像作为“第 0 期”，只判断能不能看清，用来和 2023 年的第一期比较。</p>
     <p style="margin-top:14px"><a class="btn primary" href="learn.html">下一步：学习怎么判读 ›</a></p>
   </section>
 </main>
 <script type="module">
 import { loadSites, loadPeriods } from './assets/js/store.js';
 import { SITE_ORDER, SITE_INFO } from './assets/js/config.js';
+const TOTAL = { ZZ: 184, HY: 212, SG: 117 };
 const sites = await loadSites();
 const box = document.getElementById('siteCards');
+let rows = '';
 for (const c of SITE_ORDER) {
   const s = sites[c];
   const per = await loadPeriods(c);
@@ -84,8 +85,13 @@ for (const c of SITE_ORDER) {
   box.insertAdjacentHTML('beforeend', `<div class="card" style="overflow:hidden">
     <div style="position:relative;aspect-ratio:1;background:#14171c"><img src="${ref.tc}" style="width:100%;height:100%;image-rendering:pixelated;display:block">${aoi}</div>
     <div style="padding:12px 14px"><b style="font-size:16px;display:flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block"></i>${s.name}</b>
-    <p class="small muted" style="margin:6px 0 0">${SITE_INFO[c].concern}</p><p class="tiny" style="margin:6px 0 0">${s.n_tasks} 期 · ${s.aoi ? '看铁路右侧山体（黄线内）' : '看整幅影像'}</p></div></div>`);
+    <p class="small muted" style="margin:6px 0 0">${SITE_INFO[c].concern}</p><p class="tiny" style="margin:6px 0 0">${s.aoi ? '看铁路右侧靠山的一面（黄线内）' : '看整幅影像'}</p></div></div>`);
+  rows += `<tr><td><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block;margin-right:6px"></i>${s.name}</td><td>${TOTAL[c]} 期</td><td><b>${s.n_tasks} 期</b></td><td>${s.aoi ? '铁路右侧山体' : '整幅'}</td></tr>`;
 }
+document.getElementById('countTable').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:15px">
+  <thead><tr style="text-align:left;color:var(--sub);font-size:13px"><th style="padding:8px 6px;border-bottom:1px solid var(--line)">测点</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">全部影像（2021.7—2026.7）</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">第一期要做（2023—2024）</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">观察范围</th></tr></thead>
+  <tbody>${rows}<tr style="font-weight:700"><td style="padding:8px 6px">合计</td><td style="padding:8px 6px">513 期</td><td style="padding:8px 6px">176 期</td><td></td></tr></tbody></table>`;
+document.querySelectorAll('#countTable tbody td').forEach(td => { td.style.padding = td.style.padding || '8px 6px'; td.style.borderBottom = '1px solid var(--line)'; });
 </script>
 </body>
 </html>
