@@ -2,12 +2,14 @@
 import { Scene } from './viewer.js';
 import { append, selectAll } from './api.js';
 import { loadSites, loadPeriods, latestByScene, fmtDate, fmtTime } from './store.js';
-import { SITE_ORDER, CHANGE_TAGS } from './config.js';
+import { SITE_ORDER, CHANGE_TAGS, QUALITY_NAME, OVERALL_NAME } from './config.js';
 
 const $ = id => document.getElementById(id);
 const TAG = Object.fromEntries(CHANGE_TAGS.map(t => [t.key, t.label]));
 const DEC = { confirmed: '已确认', rejected: '不是变化', modified: '组长已修改', note: '有批注' };
 const clone = x => JSON.parse(JSON.stringify(x));
+const PSEUDO = ['color', 'clarity', 'shift', 'cloud', 'shadow', 'season', 'watercolor'];
+const isBlurry = q => q && (q.clear === 'blurry' || (q.clear === 'partial' && q.also_blurry));
 let sites, periods = {}, rows = [], reviews = [], questions = [], answers = [];
 let latest = {}, cur = null, work = null, imgKind = 'tc';
 let scene = null, va = null, vb = null;
@@ -31,7 +33,7 @@ function summary(code, p) {
   const l = latest[code][p.scene_id] || {};
   const q = l.quality?.data, c = l.compare?.data;
   const bits = [];
-  if (q?.clear === 'no') bits.push(q.extent === 'full' ? '整幅看不清' : '部分看不清');
+  if (q && q.clear !== 'yes') bits.push(QUALITY_NAME[q.clear] || q.clear);
   if (c?.status === 'changes') bits.push(`${c.boxes?.length || 0} 处变化`);
   if (c?.status === 'none') bits.push('没有明显不同');
   if (c?.status === 'uncomparable') bits.push('没法比较');
@@ -43,8 +45,10 @@ function matches(code, p, type) {
   const q = l.quality?.data, c = l.compare?.data;
   if (!q && !c) return false;
   if (type === 'changes') return c?.status === 'changes';
-  if (type === 'partial') return q?.clear === 'no' && q.extent === 'partial';
-  if (type === 'full') return (q?.clear === 'no' && q.extent === 'full') || c?.status === 'uncomparable';
+  if (type === 'partial') return q?.clear === 'partial';
+  if (type === 'blurry') return isBlurry(q);
+  if (type === 'overall') return (c?.overall || []).some(o => PSEUDO.includes(o));
+  if (type === 'full') return q?.clear === 'no' || c?.status === 'uncomparable';
   if (type === 'none') return c?.status === 'none';
   if (type === 'other') return !!(q?.other || c?.other || (c?.boxes || []).some(b => b.tags.includes('unclear') || b.note));
   if (type === 'reviewed') return reviewsOf(code, p.scene_id).length > 0;
@@ -137,9 +141,9 @@ function openReview(keepWork = false) {
   scene.setLayer('change', work.boxes, { style: 'change', editable: true });
   requestAnimationFrame(() => { if (!scene._fitted) { scene.fit(); scene._fitted = true; } else scene.render(); });
   const q = l.quality?.data, c = l.compare?.data;
-  const qText = !q ? '第一步：还没做' : q.clear === 'yes' ? '第一步：能看清' : `第一步：看不清（${q.extent === 'full' ? '整幅' : '一部分'}）· ${(q.reasons || []).join('、')}${q.other ? `；${esc(q.other)}` : ''}`;
+  const qText = !q ? '第一步：还没做' : `第一步：${QUALITY_NAME[q.clear] || q.clear}${q.clear !== 'yes' ? ` · ${(q.reasons || []).join('、')}${q.other ? `；${esc(q.other)}` : ''}${q.also_blurry ? ' · 其余地方也有点模糊' : ''}` : ''}`;
   let cText = '第二步：还没做';
-  if (c) cText = c.status === 'uncomparable' ? '第二步：没法比较' : `第二步：${c.status === 'none' ? '没有明显不同' : `${c.boxes.length} 处不同`}${c.overall?.includes('color') ? ' · 整体颜色或亮度变了' : ''}${c.other ? `；${esc(c.other)}` : ''}`;
+  if (c) cText = c.status === 'uncomparable' ? '第二步：没法比较' : `第二步：${(c.overall || []).map(o => OVERALL_NAME[o] || o).join('、') || (c.status === 'none' ? '没有明显不同' : '')}${c.boxes?.length ? `（${c.boxes.length} 个框）` : ''}${c.other ? `；${esc(c.other)}` : ''}`;
   $('rvAnswers').innerHTML = `<div class="notice" style="margin-bottom:8px">${qText}<br>${cText}</div>`;
   renderBoxes();
   const hist = [
@@ -243,8 +247,8 @@ function effectiveCompare(code, p) {
 }
 
 function exportPeriods() {
-  const out = [['测点', '期序', '日期', '卫星', '轨道', '距上一期天数', '上一期日期', '能否看清', '看不清范围', '看不清原因', '看不清其他说明', '看不清框数',
-    '对比结果', '整体情况', '变化框数', '变化类别汇总', '其他说明', '结果来源', '复核结论', '复核批注']];
+  const out = [['测点', '期序', '日期', '卫星', '轨道', '距上一期天数', '上一期日期', '看得清程度', '看不清原因', '看不清其他说明', '看不清框数', '其余也模糊',
+    '对比结果', '不同点', '变化框数', '变化类别汇总', '其他说明', '结果来源', '复核结论', '复核批注']];
   for (const code of SITE_ORDER) periods[code].forEach((p, i) => {
     const l = latest[code][p.scene_id] || {};
     const q = l.quality?.data;
@@ -252,8 +256,8 @@ function exportPeriods() {
     const tagCount = {};
     for (const b of c?.boxes || []) for (const t of b.tags) tagCount[TAG[t] || t] = (tagCount[TAG[t] || t] || 0) + 1;
     out.push([sites[code].name, i, p.date, p.satellite, p.orbit, p.gap_days ?? '', periods[code][i - 1]?.date || '',
-      q ? (q.clear === 'yes' ? '能看清' : '看不清') : '', q?.extent === 'full' ? '整幅' : q?.extent === 'partial' ? '一部分' : '', (q?.reasons || []).join('、'), q?.other || '', q?.boxes?.length || '',
-      c ? ({ none: '没有明显不同', changes: '有不同', uncomparable: '没法比较' })[c.status] : '', (c?.overall || []).map(o => (o === 'none' ? '没有明显不同' : '整体颜色或亮度变了')).join('、'),
+      q ? (QUALITY_NAME[q.clear] || q.clear) : '', (q?.reasons || []).join('、'), q?.other || '', q?.boxes?.length || '', q?.also_blurry ? '是' : '',
+      c ? ({ none: '没有局部变化', changes: '有局部变化', uncomparable: '没法比较' })[c.status] : '', (c?.overall || []).map(o => OVERALL_NAME[o] || o).join('、'),
       c?.boxes?.length ?? '', Object.entries(tagCount).map(([t, n]) => `${t}×${n}`).join('；'), c?.other || '', c ? source : '', rv ? DEC[rv.decision] : '', rv?.comment || '']);
   });
   download(`判读结果_每一期_${stamp()}.csv`, csv(out));

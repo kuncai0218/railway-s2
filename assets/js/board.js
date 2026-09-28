@@ -1,11 +1,11 @@
 // Live board: progress, a colour strip per site, a map of every recorded change, and recent activity.
 import { selectAll } from './api.js';
 import { loadSites, loadPeriods, latestByScene, periodState, progress, fmtDate, fmtTime } from './store.js';
-import { SITE_ORDER, CHANGE_TAGS } from './config.js';
+import { SITE_ORDER, CHANGE_TAGS, OVERALL_NAME } from './config.js';
 
 const $ = id => document.getElementById(id);
 const TAG = Object.fromEntries(CHANGE_TAGS.map(t => [t.key, t.label]));
-const STATE_NAME = { todo: '未开始', half: '只做了第一步', done: '没有明显不同', changes: '有变化', uncomparable: '没法比较' };
+const STATE_NAME = { todo: '未开始', half: '只做了第一步', done: '没有局部变化', changes: '有局部变化', uncomparable: '没法比较' };
 let sites, periods = {}, built = false;
 
 function eta(rowsSite, pr) {
@@ -28,7 +28,7 @@ function showPair(code, p, prev, data) {
   const idx = periods[code].indexOf(p);
   $('pmOpen').href = `work.html?site=${code}#${idx}`;
   $('pmInfo').innerHTML = data.boxes.map(b => `<div style="margin:4px 0"><b style="color:#d9363e">框 ${b.id}</b>：${b.tags.map(t => TAG[t] || t).join('、') || '未选类别'}${b.note ? `；${b.note}` : ''}</div>`).join('')
-    + (data.overall?.includes('color') ? '<div>整体颜色或亮度变了</div>' : '') + (data.other ? `<div>其他：${data.other}</div>` : '');
+    + ((data.overall || []).filter(o => o !== 'local').length ? `<div>不同点：${data.overall.filter(o => o !== 'local').map(o => OVERALL_NAME[o] || o).join('、')}</div>` : '') + (data.other ? `<div>其他：${data.other}</div>` : '');
   $('pairModal').classList.add('show');
 }
 
@@ -41,7 +41,9 @@ function render(rows, questions, answers) {
     const rs = rows.filter(r => r.site === code);
     const latest = latestByScene(rs);
     const pr = progress(per, latest);
-    const unclear = per.filter(p => latest[p.scene_id]?.quality?.data?.clear === 'no').length;
+    const qOf = p => latest[p.scene_id]?.quality?.data;
+    const unclear = per.filter(p => ['partial', 'no'].includes(qOf(p)?.clear)).length;
+    const blurry = per.filter(p => qOf(p)?.clear === 'blurry').length;
     let sec = document.getElementById(`sec-${code}`);
     if (!sec) {
       sec = document.createElement('section');
@@ -74,7 +76,7 @@ function render(rows, questions, answers) {
     sec.innerHTML = `<a id="${code}"></a>
       <div class="bs-head"><h2><i style="background:${s.color}"></i>${s.name}</h2>
         <div class="progress"><i style="width:${Math.round(pr.finished / pr.total * 100)}%;background:${s.color}"></i></div>
-        <div class="bs-nums"><span>已完成 <b>${pr.finished}</b> / ${pr.total} 期</span><span>有变化 <b>${pr.changes}</b> 期</span><span>看不清 <b>${unclear}</b> 期</span><span>预计还需 <b>${eta(rs, pr)}</b></span></div>
+        <div class="bs-nums"><span>已完成 <b>${pr.finished}</b> / ${pr.total} 期</span><span>有变化 <b>${pr.changes}</b> 期</span><span>整体模糊 <b>${blurry}</b> 期</span><span>有地方看不清 <b>${unclear}</b> 期</span><span>预计还需 <b>${eta(rs, pr)}</b></span></div>
         <a class="btn sm" href="work.html?site=${code}">进入判读</a></div>
       <div class="timeline">${cells}</div>
       <div class="tl-axis"><span>${per[0].date}</span><span>${mid.date}</span><span>${per[per.length - 1].date}</span></div>

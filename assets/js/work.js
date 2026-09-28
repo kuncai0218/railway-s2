@@ -2,7 +2,7 @@
 import { Scene } from './viewer.js';
 import { append, onQueueChange, pendingRows, uuid } from './api.js';
 import { loadSites, loadPeriods, loadReadings, latestByScene, periodState, progress, fmtDate } from './store.js';
-import { QUALITY_REASONS, CHANGE_TAGS } from './config.js';
+import { QUALITY_REASONS, CHANGE_TAGS, QUALITY_LEVELS, OVERALL } from './config.js';
 
 const $ = id => document.getElementById(id);
 const query = new URLSearchParams(location.search);
@@ -10,7 +10,7 @@ const code = (query.get('site') || 'HY').toUpperCase();
 const practice = query.get('practice') === '1';   // practice mode: nothing leaves this browser
 const PRACTICE_KEY = `rs2_practice_${code}`;
 const clone = x => JSON.parse(JSON.stringify(x));
-const emptyQ = () => ({ clear: null, extent: null, reasons: [], other: '', boxes: [] });
+const emptyQ = () => ({ clear: null, reasons: [], other: '', boxes: [], also_blurry: false });
 const emptyC = () => ({ overall: [], other: '', boxes: [] });
 
 let site, periods, rows = [], latest = {};
@@ -109,17 +109,17 @@ function setStep(n) {
 function renderPanel1() {
   const p = cur();
   document.querySelectorAll('[data-clear]').forEach(b => b.classList.toggle('on', q.clear === b.dataset.clear));
-  $('unclearBlock').hidden = q.clear !== 'no';
-  document.querySelectorAll('[data-extent]').forEach(b => b.classList.toggle('on', q.extent === b.dataset.extent));
+  $('unclearBlock').hidden = !q.clear || q.clear === 'yes';
   $('reasonChips').querySelectorAll('.chip').forEach(b => b.classList.toggle('on', q.reasons.includes(b.dataset.reason)));
   $('qOther').value = q.other || '';
-  const needBoxes = q.clear === 'no' && q.extent === 'partial';
+  const needBoxes = q.clear === 'partial';
   $('qBoxField').hidden = !needBoxes;
+  $('qAlso').checked = !!q.also_blurry;
   scene1.setLayer('quality', q.boxes, { style: 'quality', editable: needBoxes });
   renderQBoxList();
   let lab = '下一步：和上一期比';
   if (p.role === 'baseline') lab = '保存，进入下一期';
-  else if (q.clear === 'no' && q.extent === 'full') lab = '保存（这一期没法比较），进入下一期';
+  else if (q.clear === 'no') lab = '保存（这一期没法比较），进入下一期';
   $('save1').textContent = lab;
   $('err1').textContent = '';
 }
@@ -145,22 +145,21 @@ function renderQBoxList() {
 }
 
 function validateQ() {
-  if (!q.clear) return '请先选“能看清”或“看不清”。';
-  if (q.clear === 'no') {
-    if (!q.extent) return '请选看不清的范围：一部分还是整幅。';
-    if (!q.reasons.length && !q.other.trim()) return '请至少选一个原因，或者在“其他原因”里写一句。';
-    if (q.extent === 'partial' && !q.boxes.length) return '选了“一部分”，请在图上画框圈出看不清的地方。';
-  }
+  if (!q.clear) return '请先选这一期看得清的程度。';
+  if (q.clear !== 'yes' && !q.reasons.length && !q.other.trim()) return '请至少选一个原因，或者在“其他原因”里写一句。';
+  if (q.clear === 'partial' && !q.boxes.length) return '选了“有些地方看不清”，请在图上画框圈出看不清的地方。';
   return '';
 }
 
 function cleanQ() {
   const d = { clear: q.clear };
-  if (q.clear === 'no') {
-    d.extent = q.extent;
+  if (q.clear !== 'yes') {
     d.reasons = q.reasons;
     d.other = q.other.trim();
-    d.boxes = q.extent === 'partial' ? q.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 })) : [];
+  }
+  if (q.clear === 'partial') {
+    d.boxes = q.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }));
+    d.also_blurry = !!q.also_blurry;
   }
   return d;
 }
@@ -191,9 +190,9 @@ async function onSave1() {
     await saveRow('quality', data);
     const p = cur();
     if (p.role === 'baseline') { toast('已保存'); goTo(k + 1); return; }
-    if (data.clear === 'no' && data.extent === 'full') {
+    if (data.clear === 'no') {
       await saveRow('compare', { status: 'uncomparable', reason: 'current_unclear' });
-      toast('已保存：这一期整幅看不清，记为没法比较');
+      toast('已保存：这一期基本看不清，记为没法比较');
       goTo(k + 1);
       return;
     }
@@ -211,13 +210,17 @@ function renderPanel2() {
   const pq = prevQuality();
   const banner = $('bannerArea');
   banner.innerHTML = '';
-  const prevFull = pq && pq.clear === 'no' && pq.extent === 'full';
+  const prevFull = pq && pq.clear === 'no';
   if (!pq) banner.innerHTML = '<div class="notice warn">上一期还没判断能不能看清。建议先回到上一期完成第一步。</div>';
-  if (prevFull) banner.innerHTML = '<div class="notice warn">上一期整幅看不清，这一对没法比较。直接点“保存，进入下一期”即可。</div>';
+  if (prevFull) banner.innerHTML = '<div class="notice warn">上一期基本看不清，这一对没法比较。直接点“保存，进入下一期”即可。</div>';
+  const blurry = x => x && (x.clear === 'blurry' || (x.clear === 'partial' && x.also_blurry));
+  $('blurNote').innerHTML = !prevFull && (blurry(q) || blurry(pq))
+    ? `<div class="notice warn">${blurry(q) && blurry(pq) ? '这两期' : blurry(q) ? '这一期' : '上一期'}整体偏模糊，只记你能确定的不同；拿不准的选“有差别，但说不清是什么”。</div>` : '';
   scene2.setLayer('prevQuality', clone((pq && pq.boxes) || []), { style: 'quality', viewer: 0, labels: false });
   scene2.setLayer('curQuality', clone(q.boxes || []), { style: 'quality', viewer: 1, labels: false });
   scene2.setLayer('change', c.boxes, { style: 'change', editable: !prevFull });
   document.querySelectorAll('[data-overall]').forEach(b => { b.classList.toggle('on', c.overall.includes(b.dataset.overall)); b.disabled = prevFull; });
+  $('cBoxList').closest('.field').style.opacity = prevFull ? 0.5 : 1;
   $('cOther').value = c.other || '';
   $('cOther').disabled = prevFull;
   $('cDraw').disabled = prevFull;
@@ -257,10 +260,11 @@ function renderCBoxList() {
 
 function validateC() {
   const pq = prevQuality();
-  if (pq && pq.clear === 'no' && pq.extent === 'full') return '';
+  if (pq && pq.clear === 'no') return '';
   const none = c.overall.includes('none');
-  if (!c.overall.length && !c.boxes.length && !c.other.trim()) return '请选“没有明显不同”，或者画框标出不同的地方。';
-  if (none && c.boxes.length) return '已经画了框，就不能再选“没有明显不同”。';
+  if (!c.overall.length && !c.boxes.length && !c.other.trim()) return '请在“不同点”里至少选一项；没有不同就选“没有明显不同”。';
+  if (none && (c.boxes.length || c.overall.length > 1)) return '选了“没有明显不同”，就不能再选别的不同点或画框。';
+  if (c.overall.includes('local') && !c.boxes.length) return '选了“地面有局部变化”，请在图上画框标出来。';
   const bad = c.boxes.find(b => !b.tags.length && !(b.note || '').trim());
   if (bad) return `框 ${bad.id} 还没选是什么变化（选一项，或者在它下面写一句）。`;
   return '';
@@ -275,11 +279,11 @@ async function onSave2() {
   try {
     const pq = prevQuality();
     let data;
-    if (pq && pq.clear === 'no' && pq.extent === 'full') data = { status: 'uncomparable', reason: 'previous_unclear' };
+    if (pq && pq.clear === 'no') data = { status: 'uncomparable', reason: 'previous_unclear' };
     else {
       const boxes = c.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags, note: (b.note || '').trim() }));
-      const changed = boxes.length > 0 || c.overall.includes('color') || c.other.trim();
-      data = { status: changed ? 'changes' : 'none', overall: c.overall, other: c.other.trim(), boxes };
+      const overall = [...new Set([...c.overall, ...(boxes.length ? ['local'] : [])])];
+      data = { status: boxes.length ? 'changes' : 'none', overall, other: c.other.trim(), boxes };
     }
     await saveRow('compare', data);
     toast(data.status === 'changes' ? `已保存，记录了 ${data.boxes.length} 处不同` : '已保存');
@@ -344,14 +348,16 @@ function renderList() {
 
 // ---------- wiring ----------
 function wire() {
+  $('qLevels').innerHTML = QUALITY_LEVELS.map(l => `<button class="qopt l-${l.key}" data-clear="${l.key}"><b>${l.label}</b><span>${l.hint}</span></button>`).join('');
   $('reasonChips').innerHTML = QUALITY_REASONS.map(r => `<button class="chip" data-reason="${r}">${r}</button>`).join('');
-  document.querySelectorAll('[data-clear]').forEach(b => b.onclick = () => { q.clear = b.dataset.clear; if (q.clear === 'yes') { q.extent = null; } saveDraft(); renderPanel1(); });
-  document.querySelectorAll('[data-extent]').forEach(b => b.onclick = () => {
-    q.extent = b.dataset.extent;
+  $('overallChips').innerHTML = OVERALL.map(o => `<button class="chip" data-overall="${o.key}">${o.label}</button>`).join('');
+  document.querySelectorAll('[data-clear]').forEach(b => b.onclick = () => {
+    q.clear = b.dataset.clear;
     saveDraft();
     renderPanel1();
-    if (q.extent === 'partial' && !q.boxes.length) scene1.setMode('draw');
+    if (q.clear === 'partial' && !q.boxes.length) scene1.setMode('draw');
   });
+  $('qAlso').addEventListener('change', e => { q.also_blurry = e.target.checked; saveDraft(); });
   $('reasonChips').addEventListener('click', e => {
     const r = e.target.dataset.reason;
     if (!r) return;
@@ -366,9 +372,12 @@ function wire() {
   document.querySelectorAll('[data-overall]').forEach(b => b.onclick = () => {
     const o = b.dataset.overall;
     const i = c.overall.indexOf(o);
-    if (i >= 0) c.overall.splice(i, 1); else c.overall.push(o);
+    if (i >= 0) c.overall.splice(i, 1);
+    else if (o === 'none') c.overall = ['none'];
+    else { c.overall = c.overall.filter(x => x !== 'none'); c.overall.push(o); }
     saveDraft();
     renderPanel2();
+    if (o === 'local' && c.overall.includes('local') && !c.boxes.length) scene2.setMode('draw');
   });
   $('cOther').addEventListener('input', e => { c.other = e.target.value; saveDraft(); });
   $('save1').onclick = onSave1;
@@ -378,8 +387,11 @@ function wire() {
   scene1.onChange = () => { saveDraft(); renderQBoxList(); };
   scene1.onSelect = () => renderQBoxList();
   scene2.onChange = () => {
-    const i = c.overall.indexOf('none');
-    if (i >= 0 && c.boxes.length) { c.overall.splice(i, 1); document.querySelector('[data-overall="none"]').classList.remove('on'); }
+    if (c.boxes.length) {
+      c.overall = c.overall.filter(x => x !== 'none');
+      if (!c.overall.includes('local')) c.overall.push('local');
+      document.querySelectorAll('[data-overall]').forEach(b => b.classList.toggle('on', c.overall.includes(b.dataset.overall)));
+    }
     saveDraft();
     renderCBoxList();
   };

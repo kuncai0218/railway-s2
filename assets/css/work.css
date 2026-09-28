@@ -58,3 +58,12 @@ body.work { height: 100vh; display: flex; flex-direction: column; overflow: hidd
 .plist small { display: block; font-size: 11px; color: var(--muted); }
 .st-todo { background: #cfd5de; } .st-half { background: #f2b84b; } .st-done { background: var(--ok); }
 .st-changes { background: #ff4d4f; } .st-uncomparable { background: #7b8494; }
+.qopts { display: flex; flex-direction: column; gap: 8px; }
+.qopt { text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 9px 12px; cursor: pointer; font: inherit; display: flex; flex-direction: column; gap: 2px; }
+.qopt b { font-size: 15px; } .qopt span { font-size: 12.5px; color: var(--sub); }
+.qopt:hover { border-color: #b9c2d0; }
+.qopt.on { border-width: 2px; padding: 8px 11px; }
+.qopt.on.l-yes { border-color: var(--ok); background: var(--ok-weak); }
+.qopt.on.l-blurry { border-color: #d9a21b; background: #fdf6e3; }
+.qopt.on.l-partial { border-color: #e8772e; background: #fdf0e6; }
+.qopt.on.l-no { border-color: #9aa3b2; background: #f1f3f6; }
