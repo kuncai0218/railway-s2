@@ -201,7 +201,8 @@ function matches(code, p, type) {
   const q = l.quality?.data, c = l.compare?.data;
   if (!q && !c) return false;
   const a = aiOf(code, p);
-  if (type === 'ai-act') return ['modify', 'reject', 'uncomparable'].includes(a?.suggest?.decision);
+  // 10-01 复核改过结论的期也留在“要处理的”队列里：改完之后建议可能变成“确认无误”，不能让它从你正在走的队列里消失
+  if (type === 'ai-act') return ['modify', 'reject', 'uncomparable'].includes(a?.suggest?.decision) || !!a?.recheck?.items?.length;
   if (type === 'ai-miss') return !!a?.misses?.length;
   if (type === 'recheck') return !!a?.recheck?.items?.length;
   if (type === 'ai-confirm') return a?.suggest?.decision === 'confirm' && !!c?.boxes?.length;
