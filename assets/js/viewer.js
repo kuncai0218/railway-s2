@@ -538,9 +538,13 @@ class Viewer {
     ctx.clearRect(0, 0, SIZE, SIZE);
     if (!on) return;
     const img = ctx.createImageData(SIZE, SIZE);
+    // highlight：漏标提醒框 [x0, y0, x1, y1]，框里的变化像元用品红突出；fadeOthers：其余变化像元调淡（复核台用；第三步保持原样）
+    const HL = M.highlight || [];
+    const inHL = n => { const x = (n % SIZE) + 0.5, y = Math.floor(n / SIZE) + 0.5; return HL.some(h => x >= h[0] && x <= h[2] && y >= h[1] && y <= h[3]); };
+    const plain = M.fadeOthers ? [0, 229, 255, 70] : [0, 229, 255, 120];
     for (let n = 0; n < SIZE * SIZE; n++) {
       const v = M.cells[n];
-      if (v === 1) img.data.set([0, 229, 255, 120], n * 4);
+      if (v === 1) img.data.set(HL.length && inHL(n) ? [255, 43, 214, 215] : plain, n * 4);
       else if (v === 2 && M.showUnsure !== false) img.data.set([255, 214, 102, 55], n * 4);
     }
     ctx.putImageData(img, 0, 0);

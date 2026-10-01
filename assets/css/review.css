@@ -39,7 +39,7 @@ html, .rv-body { overflow-x: hidden; }
 .rv-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 6px 12px 8px; color: #aab2bf; font-size: 12px; }
 .lg { display: inline-block; width: 16px; height: 10px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
 .lg.red { border: 2px solid #ff4d4f; } .lg.ghost { border: 2px dashed #cfd4da; } .lg.ai { border: 2px dashed #22d3ee; }
-.lg.cyan { background: rgba(0, 229, 255, .6); } .lg.yellow { background: rgba(255, 214, 102, .45); } .lg.aoi { border: 2px dashed #ffd43b; } .lg.rail { border-top: 3px dashed #ff922b; height: 0; }
+.lg.cyan { background: rgba(0, 229, 255, .35); } .lg.magenta { background: rgb(255, 43, 214); } .lg.yellow { background: rgba(255, 214, 102, .45); } .lg.aoi { border: 2px dashed #ffd43b; } .lg.rail { border-top: 3px dashed #ff922b; height: 0; }
 
 /* 右栏 */
 .rv-panel { overflow-y: auto; padding: 14px 16px 20px; border-left: 1px solid var(--line); background: #fff; min-height: 0; }

@@ -325,7 +325,8 @@ async function open(it, keepWork = false) {
   requestAnimationFrame(() => { if (!scene._fitted) { scene.fit(); scene._fitted = true; } else scene.render(); });
   const cells = await loadMap(code, p.date);
   if (cur !== it) return;
-  scene.setAiMap(cells ? { cells, show: showMap, viewer: 1 } : null);
+  const hl = (a?.misses || []).map(m => [m.x0, m.y0, m.x1, m.y1]);
+  scene.setAiMap(cells ? { cells, show: showMap, viewer: 1, highlight: hl, fadeOthers: true } : null);
   $('mapBtn').disabled = !cells;
   $('mapBtn').classList.toggle('on', !!cells && showMap);
   if (pb.length && cells) renderS3(pb, cells);
