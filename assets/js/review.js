@@ -29,6 +29,7 @@ let fb = { boxes: {}, misses: {}, note: '' };
 let sites, periods = {}, ai = {}, rows = [], reviews = [], latest = {};
 let site = 'ZZ', cur = null, items = [], view = 'mine', imgKind = 'tc', showMap = true, showPaint = true;
 let mine = null, prop = null, curS3 = null, blink = false;
+let refDate = null, curPrevQ = [];   // 左图临时换成的“最近一张清楚影像”（10-01 夜分歧复核）
 const latestFb = (code, sid) => reviewsOf(code, sid).filter(isFb).sort((a, b) => (isAfter(a, b) ? 1 : -1)).pop() || null;
 let mode = 'demo';
 try { mode = localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo'; site = localStorage.getItem(SITE_KEY) || 'ZZ'; } catch { /* storage blocked */ }
@@ -188,8 +189,16 @@ function recheckConflicts(code, p) {
     return it.old_action !== 'check';
   });
 }
+// 10-01 夜分歧复核（组长与 AI 意见不同，讨论里第二、三、四部分的期）：again.at 之前做的决定先不算，这一期回到待复核队列；
+// 之后重新做一次决定（确认、按我的决定、不是变化、没法比较都算）就消失
+function againPending(code, p) {
+  const a = aiOf(code, p);
+  if (!a?.again?.items?.length) return false;
+  const rv = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision));
+  return rv.length > 0 && !rv.some(r => new Date(r.created_at) >= new Date(a.again.at));
+}
 function isReviewed(code, p) {
-  if (recheckConflicts(code, p).length) return false;
+  if (recheckConflicts(code, p).length || againPending(code, p)) return false;
   const l = latest[code][p.scene_id] || {};
   const lastRead = [l.quality, l.compare, l.precise].filter(Boolean).sort((a, b) => (isAfter(a, b) ? 1 : -1)).pop();
   const rv = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && r.decision !== 'note');
@@ -202,7 +211,8 @@ function matches(code, p, type) {
   if (!q && !c) return false;
   const a = aiOf(code, p);
   // 10-01 复核改过结论的期也留在“要处理的”队列里：改完之后建议可能变成“确认无误”，不能让它从你正在走的队列里消失
-  if (type === 'ai-act') return ['modify', 'reject', 'uncomparable'].includes(a?.suggest?.decision) || !!a?.recheck?.items?.length;
+  if (type === 'ai-act') return ['modify', 'reject', 'uncomparable'].includes(a?.suggest?.decision) || !!a?.recheck?.items?.length || !!a?.again?.items?.length;
+  if (type === 'again') return !!a?.again?.items?.length;
   if (type === 'ai-miss') return !!a?.misses?.length;
   if (type === 'recheck') return !!a?.recheck?.items?.length;
   if (type === 'ai-confirm') return a?.suggest?.decision === 'confirm' && !!c?.boxes?.length;
@@ -233,8 +243,8 @@ function renderList(keep = false) {
     b.className = cur && cur.code === it.code && cur.i === it.i ? 'cur' : '';
     const stu = c ? ({ changes: `${c.boxes?.length || 0} 框`, none: '无变化', uncomparable: '没法比较' })[c.status] || '' : '';
     const miss = a?.misses?.length ? ` · 漏${a.misses.length}` : '';
-    const rcx = recheckConflicts(it.code, it.p).length;
-    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">复</span>' : '')}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
+    const rcx = recheckConflicts(it.code, it.p).length || againPending(it.code, it.p);
+    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">复</span>' : '')}${a?.again?.items?.length && !rcx ? '<span class="agm">议</span>' : ''}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
     b.onclick = () => open(it);
     box.appendChild(b);
   }
@@ -287,6 +297,7 @@ function normD(d) {
 async function open(it, keepWork = false) {
   cur = it;
   blink = false; $('blinkBtn').classList.remove('on'); $('blinkBtn').textContent = '右图看上一期';
+  refDate = null;
   const { code, p, i } = it;
   const per = periods[code], prev = per[i - 1];
   const l = latest[code][p.scene_id] || {}, pl = prev ? latest[code][prev.scene_id] || {} : {};
@@ -329,12 +340,18 @@ async function open(it, keepWork = false) {
   const ACTN = { keep: '保留', retag: '保留并改类别', delete: '删除', check: '请看图定' };
   const rcHtml = rcItems.length ? `<div class="recheck${rcBad.size ? ' bad' : ''}"><b>10-01 复核更新了这期的 AI 结论</b>${rcBad.size ? '：你在更新前做的决定和新结论对不上，请重看标红的框' : ''}
     ${rcItems.map(x => `<div class="rci${rcBad.has(x.box) ? ' bad' : ''}">框${x.box}：${esc(x.old)}（${ACTN[x.old_action] || x.old_action}）→ <b>${esc(x.new)}</b>（${ACTN[x.new_action] || x.new_action}）<div class="tiny">${esc(x.ev)}</div></div>`).join('')}</div>` : '';
+  const agItems = a?.again?.items || [];
+  const agPend = againPending(code, p);
+  const SEC = { 二: '第二部分 · AI 可能对，再看一眼', 三: '第三部分 · 薄云期判法要统一', 四: '第四部分 · 要修的记录' };
+  const agHtml = agItems.length ? `<div class="again${agPend ? ' bad' : ''}"><b>10-01 夜分歧复核</b>${agPend ? '：你之前在这期做的决定先不算，看完下面的说明后重新做一次决定' : ''}
+    ${agItems.map(x => `<div class="agi"><span class="sec">${esc(SEC[x.sec] || x.sec)}</span><div class="tt">${esc(x.title)}</div><div>${esc(x.text)}</div><div class="sug">建议：${esc(x.sug)}</div>${x.ref ? `<button class="btn sm" data-ref="${esc(x.ref)}">左图换成 ${esc(x.ref)}（最近一张清楚影像）</button>` : ''}</div>`).join('')}</div>` : '';
   $('sugCard').innerHTML = a
-    ? `${rcHtml}<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
+    ? `${agHtml}${rcHtml}<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
        ${a.flags?.length ? `<div class="flags">${a.flags.map(esc).join('<br>')}</div>` : ''}
        <div class="row"><button class="btn sm primary" id="adoptBtn" title="A">采用 AI 建议</button><button class="btn sm" id="resetBtn">恢复同学原样</button></div>`
     : '<div class="t">这一期没有 AI 数据</div><div class="s">本机没有找到 ai/ai_' + code + '.json，可以照常复核。</div>';
   if (a) { $('adoptBtn').onclick = adoptAI; $('resetBtn').onclick = () => { open(cur); toast('已恢复同学原样'); }; }
+  $('sugCard').querySelectorAll('[data-ref]').forEach(btn => { btn.onclick = () => setRef(refDate === btn.dataset.ref ? null : btn.dataset.ref); });
   // 同学的判读
   const q = l.quality?.data, pq = pl.quality?.data;
   const qt = d => !d ? '还没做' : `${QUALITY_NAME[d.clear] || d.clear}${d.clear !== 'yes' && d.reasons?.length ? `（${d.reasons.join('、')}）` : ''}`;
@@ -347,7 +364,8 @@ async function open(it, keepWork = false) {
   vb.setImage(p[imgKind], `这一期 ${p.date}`);
   scene.aoi = sites[code].aoi ? sites[code].aoi.ring : null;
   scene.rail = sites[code].railway.lines;
-  scene.setLayer('prevQ', clone(pq?.boxes || []), { style: 'quality', viewer: 0, labels: false });
+  curPrevQ = clone(pq?.boxes || []);
+  scene.setLayer('prevQ', clone(curPrevQ), { style: 'quality', viewer: 0, labels: false });
   scene.setLayer('curQ', clone(q?.boxes || []), { style: 'quality', viewer: 1, labels: false });
   const pb = (s3.precise?.data?.boxes || []).map(m => ({ id: m.id, c0: m.c0, r0: m.r0, w: m.w, h: m.h, cells: decodeCells(m.rle, m.w * m.h) }));
   scene.setPaint(pb.length ? { boxes: pb, current: null, brush: 1, size: 1, editable: false, show: showPaint, grid: false } : null);
@@ -613,6 +631,14 @@ async function decide(dec) {
     return;
   }
   if (dec === 'note' && !comment) { $('err').textContent = '请先写批注。'; return; }
+  // 批注和决定要对得上（10-01 夜：有 8 期批注写着“判没法比较”或“漏标”，决定却是无变化或没法比较，同学看得到）
+  if (comment && dec !== 'note') {
+    const say = { confirmed: '确认同学结果', modified: '按我的决定保存', rejected: '不是变化' }[dec];
+    if (dec !== 'uncomparable' && /没法比较/.test(comment)
+      && !confirm(`批注里写着“没法比较”，但这次保存的是“${say}”。同学会看到这条批注。\n\n仍要这样保存吗？（取消后可以改批注，或按 U 改为没法比较）`)) return;
+    if (dec === 'uncomparable' && /漏标/.test(comment)
+      && !confirm('批注里写着“漏标”，但这次保存的是“没法比较”（框和漏标都不算）。同学会看到这条批注。\n\n仍要这样保存吗？')) return;
+  }
   if (dec === 'modified') {
     const bad = mine.boxes.find(b => !b.tags.length && !b.note);
     if (bad) { $('err').textContent = `框 ${bad.id} 还没选类别。`; return; }
@@ -676,7 +702,29 @@ document.querySelectorAll('#imgSeg button').forEach(b => b.onclick = () => setIm
 function setImg(k) {
   imgKind = k;
   document.querySelectorAll('#imgSeg button').forEach(x => x.classList.toggle('on', x.dataset.img === k));
-  if (cur) { const prev = periods[cur.code][cur.i - 1]; va.setImage(prev[k]); vb.setImage(blink ? prev[k] : cur.p[k]); }
+  if (cur) {
+    const prev = periods[cur.code][cur.i - 1], rp = refDate ? periods[cur.code].find(x => x.date === refDate) : null;
+    va.setImage((rp || prev)[k]); vb.setImage(blink ? prev[k] : cur.p[k]);
+  }
+}
+function setRef(d) {
+  if (!cur) return;
+  const per = periods[cur.code], prev = per[cur.i - 1];
+  const rp = d ? per.find(x => x.date === d) : null;
+  refDate = rp ? d : null;
+  if (rp) {
+    va.setImage(rp[imgKind], `对照 ${rp.date}（最近一张清楚影像，不是上一期）`);
+    scene.setLayer('prevQ', [], { style: 'quality', viewer: 0, labels: false });   // 上一期的“看不清”框不属于这张影像
+  } else {
+    va.setImage(prev[imgKind], `上一期 ${prev.date}`);
+    scene.setLayer('prevQ', clone(curPrevQ), { style: 'quality', viewer: 0, labels: false });
+  }
+  scene.render();
+  document.querySelectorAll('#sugCard [data-ref]').forEach(b => {
+    const on = b.dataset.ref === refDate;
+    b.classList.toggle('on', on);
+    b.textContent = on ? '左图回到上一期' : `左图换成 ${b.dataset.ref}（最近一张清楚影像）`;
+  });
 }
 function setBlink(on) {
   if (!cur) return;
