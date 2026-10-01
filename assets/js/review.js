@@ -233,7 +233,9 @@ function proposal(code, p, sd) {
   }
   let next = sboxes.reduce((m, b) => Math.max(m, b.id || 0), 0) + 1;
   const adds = (a.misses || []).map(m => ({ id: next++, x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1, tags: [...(m.suggest_tags || [])], note: `AI 提醒：${m.type}`, _miss: m.id }));
-  const boxes = [...keep, ...adds];
+  // 置信度低于 CONF_MIN 的提醒照样显示，但不进“采用 AI 建议”（与整体建议的算法一致），看图后可以单独点“加入我的决定”
+  const strong = new Set((a.misses || []).filter(m => m.conf_p == null || m.conf_p >= CONF_MIN).map(m => m.id));
+  const boxes = [...keep, ...adds.filter(b => strong.has(b._miss))];
   const unc = a.suggest?.decision === 'uncomparable';
   const status = unc ? 'uncomparable' : boxes.length ? 'changes' : 'none';
   const o = [...ov];
@@ -334,17 +336,18 @@ async function open(it, keepWork = false) {
 
 function setLayers() {
   for (const n of ['boxes', 'del', 'miss']) delete scene.layers[n];
+  const a = cur ? aiOf(cur.code, cur.p) : null;
   const sd = curS3?.two?.data;
   if (view === 'student') {
     scene.setLayer('boxes', clone(sd?.boxes || []), { style: 'change' });
   } else if (view === 'ai' && prop) {
     scene.setLayer('del', clone(prop.del), { style: 'ghost' });
     scene.setLayer('boxes', clone(prop.data.boxes.filter(b => !b._miss)), { style: 'change' });
-    scene.setLayer('miss', prop.adds.map(b => ({ ...b, label: b._miss })), { style: 'ai' });
+    scene.setLayer('miss', prop.adds.map(b => ({ ...b, label: missLabel(a, b) })), { style: 'ai' });
   } else {
     scene.setLayer('boxes', mine.boxes, { style: 'change', editable: true });
     const added = new Set(mine.boxes.map(b => b._miss).filter(Boolean));
-    scene.setLayer('miss', (prop?.adds || []).filter(b => !added.has(b._miss)).map(b => ({ ...b, label: b._miss })), { style: 'ai' });
+    scene.setLayer('miss', (prop?.adds || []).filter(b => !added.has(b._miss)).map(b => ({ ...b, label: missLabel(a, b) })), { style: 'ai' });
   }
   document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   scene.render();
@@ -409,6 +412,23 @@ function renderBoxes() {
     list.appendChild(item);
   }
 }
+const CONF_MIN = 0.5;
+function missLabel(a, b) {
+  const m = (a?.misses || []).find(x => x.id === b._miss);
+  return m?.conf_p != null ? `${b._miss} ${Math.round(m.conf_p * 100)}%` : b._miss;
+}
+const CONF_CLS = { 高: 'c-hi', 较高: 'c-mh', 中: 'c-md', 低: 'c-lo' };
+function confBadge(m) {
+  if (m.conf_p == null) return '';
+  return `<span class="cbadge ${CONF_CLS[m.conf_level] || ''}" title="是真实变化的概率（多种方法的证据按看图样本校准）">置信度 ${m.conf_p.toFixed(2)} · ${esc(m.conf_level)}</span>`;
+}
+function confEvidence(m) {
+  const e = m.conf_ev;
+  if (!e) return '';
+  const chip = (v, name) => `<span class="ev ${v === true ? 'ok' : v === false ? 'no' : 'na'}" title="${v === true ? '支持' : v === false ? '不支持' : '算不了'}">${v === true ? '✓' : v === false ? '✗' : '–'} ${name}</span>`;
+  const ind = e.ind == null ? chip(null, '独立指数') : `<span class="ev ${e.ind >= 2 ? 'ok' : e.ind === 1 ? 'mid' : 'no'}" title="换检测没用到的波段（红边、NBR、B12 或 NDWI、B8A、B12），三个里支持的个数">独立指数 ${e.ind}/3</span>`;
+  return `<div class="evs">${ind}${chip(e.def, '检测指数强')}${chip(e.ts, '时序断点')}${chip(e.orb, '两轨道一致')}${chip(e.seg, '分割对象')}${chip(e.mad, 'IR-MAD')}${m.conf_vis ? `<span class="ev vis">看图：${esc(m.conf_vis)}</span>` : ''}</div>`;
+}
 function renderMisses() {
   const a = aiOf(cur.code, cur.p);
   const adds = prop?.adds || [];
@@ -419,10 +439,11 @@ function renderMisses() {
     const m = (a.misses || []).find(x => x.id === b._miss);
     const added = mine.boxes.some(x => x._miss === b._miss);
     const item = document.createElement('div');
-    item.className = 'boxitem miss' + (added ? ' added' : '');
+    const low = m.conf_p != null && m.conf_p < CONF_MIN;
+    item.className = 'boxitem miss' + (added ? ' added' : '') + (low ? ' lowconf' : '');
     item.innerHTML = `<div class="bh"><span class="num">${b._miss}</span><span class="small"><b>${esc(m.type)}</b>${m.rail_m != null ? ` · 距铁路约 ${m.rail_m} 米` : ''}${m.area_ha ? ` · ${m.area_ha} 公顷` : ''}</span><span class="sp"></span>
       <button class="btn sm ghost" data-act="focus">定位</button>${view === 'mine' ? (added ? '<button class="btn sm ghost" data-act="undo">撤回</button>' : '<button class="btn sm" data-act="add">加入我的决定</button>') : ''}</div>
-      <div class="ai"><span class="g ${m.type.includes('水') ? 'water' : 'real'}">漏标</span>${esc(m.reason)}<div class="why">来源：${esc(m.source || '')}${m.confidence ? ` · 把握：${esc(m.confidence)}` : ''} · 建议类别：${(m.suggest_tags || []).map(t => TAG[t] || t).join('、')}</div></div>
+      <div class="ai">${confBadge(m) ? `<div class="cline">${confBadge(m)}</div>` : ''}<span class="g ${m.type.includes('水') ? 'water' : 'real'}">漏标</span>${esc(m.reason)}<div class="why">来源：${esc(m.source || '')}${m.confidence ? ` · 原把握：${esc(m.confidence)}` : ''} · 建议类别：${(m.suggest_tags || []).map(t => TAG[t] || t).join('、')}</div>${confEvidence(m)}${m.conf_note ? `<div class="why">${esc(m.conf_note)}</div>` : ''}${low ? `<div class="why lowtip">置信度低于 ${CONF_MIN}：不计入 AI 整体建议，“采用 AI 建议”也不会加入；看图觉得是，就点“加入我的决定”。</div>` : ''}</div>
       ${fbRow(fb.misses[b._miss], FB_MISS, '对这条提醒的留言（存数据库）')}`;
     bindFb(item, fb.misses, b._miss);
     item.addEventListener('click', e => {

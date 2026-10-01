@@ -93,3 +93,16 @@ html, .rv-body { overflow-x: hidden; }
 .keybox { border: 1px solid #e0b54a; background: #fff8e6; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; display: grid; gap: 8px; font-size: 13.5px; }
 .keybox .row { display: flex; gap: 8px; }
 .keybox .row .input { flex: 1; height: 32px; }
+
+/* 10-01 漏标提醒的置信度 */
+.cline { margin-bottom: 6px; }
+.cbadge { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 9px; white-space: nowrap; }
+.cbadge.c-hi { background: #dcfce7; color: #166534; } .cbadge.c-mh { background: #e0f2fe; color: #075985; }
+.cbadge.c-md { background: #fff4d6; color: #7a4d00; } .cbadge.c-lo { background: #eceef2; color: #4b5563; }
+.evs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.evs .ev { font-size: 12px; padding: 0 7px; border-radius: 8px; border: 1px solid #dbe2ea; background: #fff; color: #4b5563; line-height: 20px; }
+.evs .ev.ok { border-color: #86efac; background: #f0fdf4; color: #166534; } .evs .ev.mid { border-color: #fcd34d; background: #fffbeb; color: #7a4d00; }
+.evs .ev.no { border-color: #e5e7eb; color: #9ca3af; } .evs .ev.na { border-style: dashed; color: #9ca3af; }
+.evs .ev.vis { border-color: #a5b4fc; background: #eef2ff; color: #3730a3; }
+.boxitem.miss.lowconf .ai { background: #fafafa; border-color: #e5e7eb; }
+.boxitem .ai .why.lowtip { color: #7a4d00; }
