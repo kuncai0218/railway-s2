@@ -338,8 +338,14 @@ async function open(it, keepWork = false) {
   const rcItems = a?.recheck?.items || [];
   const rcBad = new Set(recheckConflicts(code, p).map(x => x.box));
   const ACTN = { keep: '保留', retag: '保留并改类别', delete: '删除', check: '请看图定' };
-  const rcHtml = rcItems.length ? `<div class="recheck${rcBad.size ? ' bad' : ''}"><b>10-01 复核更新了这期的 AI 结论</b>${rcBad.size ? '：你在更新前做的决定和新结论对不上，请重看标红的框' : ''}
-    ${rcItems.map(x => `<div class="rci${rcBad.has(x.box) ? ' bad' : ''}">框${x.box}：${esc(x.old)}（${ACTN[x.old_action] || x.old_action}）→ <b>${esc(x.new)}</b>（${ACTN[x.new_action] || x.new_action}）<div class="tiny">${esc(x.ev)}</div></div>`).join('')}</div>` : '';
+  const rcSrc = [...new Set(rcItems.map(x => x.src || '10-01 复核'))].join('、');
+  const rcHtml = rcItems.length ? `<div class="recheck${rcBad.size ? ' bad' : ''}"><b>${esc(rcSrc)}更新了这期的 AI 结论</b>${rcBad.size ? '：你在更新前做的决定和新结论对不上，请重看标红的框' : ''}
+    ${rcItems.map(x => {
+      const same = x.old === x.new && x.old_action === x.new_action;
+      const head = same ? `框${x.box}：复核后维持 <b>${esc(x.new)}</b>（${ACTN[x.new_action] || x.new_action}）`
+        : `框${x.box}：${esc(x.old)}（${ACTN[x.old_action] || x.old_action}）→ <b>${esc(x.new)}</b>（${ACTN[x.new_action] || x.new_action}）`;
+      return `<div class="rci${rcBad.has(x.box) ? ' bad' : ''}">${head}<div class="tiny">${esc(x.ev)}</div></div>`;
+    }).join('')}</div>` : '';
   const agItems = a?.again?.items || [];
   const agPend = againPending(code, p);
   const SEC = { 二: '第二部分 · AI 可能对，再看一眼', 三: '第三部分 · 薄云期判法要统一', 四: '第四部分 · 要修的记录' };
