@@ -56,6 +56,7 @@ const aiDec = (code, p) => aiOf(code, p)?.suggest?.decision || 'none';
 
 // ---------------- 线上加密的 AI 数据
 const KEY_STORE = 'rs2_ai_key';
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);   // 本机才找明文 ai/，线上直接用加密数据
 let aiKeyState = 'none';            // none 没有钥匙 / ok 已解锁 / bad 钥匙不对 / plain 本机明文
 function b64url(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
 function keyText() {
@@ -90,10 +91,12 @@ async function gunzip(bytes) {
   return new Uint8Array(await new Response(s).arrayBuffer());
 }
 async function loadAI(code) {
-  try {
-    const r = await fetch(`ai/ai_${code}.json`, { cache: 'no-cache' });
-    if (r.ok) { aiKeyState = 'plain'; return await r.json(); }
-  } catch { /* 本机没有明文，试加密数据 */ }
+  if (LOCAL) {
+    try {
+      const r = await fetch(`ai/ai_${code}.json`, { cache: 'no-cache' });
+      if (r.ok) { aiKeyState = 'plain'; return await r.json(); }
+    } catch { /* 本机没有明文，试加密数据 */ }
+  }
   const b = await decryptFile(`ai_enc/ai_${code}.bin`);
   if (!b) return null;
   if (aiKeyState !== 'bad') aiKeyState = 'ok';
@@ -152,7 +155,8 @@ function loadMap(code, date) {
       img.onerror = () => res(null);
       img.src = url;
     };
-    img.src = `ai/changemap/${code}/${date}.png`;
+    if (LOCAL) img.src = `ai/changemap/${code}/${date}.png`;
+    else img.onerror();
   });
   return mapCache[key];
 }
