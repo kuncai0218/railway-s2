@@ -46,12 +46,16 @@ export class Scene {
     this.rail = [];            // polylines in pixels
     this.showAoi = true;
     this.showRail = true;
+    this.bare = false;         // 只看原图：隐藏框、观察范围、铁路、涂色、AI 变化图
     this.onChange = () => {};
     this.onSelect = () => {};
     this.onMode = () => {};
     // step 3: { boxes: [{ id, c0, r0, w, h, cells: Uint8Array(w*h) }], current, brush (0 erase, 1 changed, 2 unsure), size, editable, show, grid }
     this.paint = null;
     this.paintVersion = 0;
+    // AI 变化图（复核台和第三步用）：{ cells: Uint8Array(256*256)，0 没变 1 变化 2 拿不准, show, viewer: 只画在第几个窗口（null = 都画） }
+    this.aiMap = null;
+    this.aiMapVersion = 0;
     this.onPaint = () => {};      // a stroke, fill or undo finished
     this.onPickBox = () => {};    // clicked another box while painting
     this.onPaintView = () => {};  // paint shown / hidden with the keyboard
@@ -127,6 +131,9 @@ export class Scene {
 
   render() { this.viewers.forEach(v => v.render()); }
 
+  setAiMap(m) { this.aiMap = m; this.aiMapVersion++; this.render(); }
+  toggleAiMap(show) { if (!this.aiMap) return; this.aiMap.show = show ?? !this.aiMap.show; this.aiMapVersion++; this.render(); }
+
   // ---------- step 3 painting ----------
   setPaint(p) { this.paint = p; this._undo = []; this.paintChanged(); }
   paintChanged() { this.paintVersion++; this.render(); }
@@ -158,6 +165,28 @@ export class Scene {
       if (bx.cells[n] !== v) { bx.cells[n] = v; changed = true; }
     }
     return changed;
+  }
+  // 魔棒（brush 3）：点一下，把框内与这一格相连、AI 认为变化的格子都涂成“变化”；点在 AI 没标的格子上只涂这一格
+  wandFill(bx, x, y) {
+    const M = this.aiMap?.cells;
+    const i0 = Math.floor(x) - bx.c0, j0 = Math.floor(y) - bx.r0;
+    if (i0 < 0 || j0 < 0 || i0 >= bx.w || j0 >= bx.h) return false;
+    const isAi = (i, j) => !!M && M[(bx.r0 + j) * SIZE + bx.c0 + i] === 1;
+    if (!isAi(i0, j0)) { bx.cells[j0 * bx.w + i0] = 1; return true; }
+    const seen = new Uint8Array(bx.w * bx.h), st = [[i0, j0]];
+    seen[j0 * bx.w + i0] = 1;
+    while (st.length) {
+      const [i, j] = st.pop();
+      bx.cells[j * bx.w + i] = 1;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const a = i + di, b = j + dj;
+        if ((!di && !dj) || a < 0 || b < 0 || a >= bx.w || b >= bx.h) continue;
+        const n = b * bx.w + a;
+        if (seen[n] || !isAi(a, b)) continue;
+        seen[n] = 1; st.push([a, b]);
+      }
+    }
+    return true;
   }
   setHover(p) { this.hover = p; this.viewers.forEach(v => v.renderCursor()); }
 
@@ -208,6 +237,12 @@ class Viewer {
     this.img.draggable = false;
     this.img.alt = label;
     this.stage.appendChild(this.img);
+    this.aimap = document.createElement('canvas');
+    this.aimap.className = 'viewer-mask viewer-aimap';
+    this.aimap.width = SIZE;
+    this.aimap.height = SIZE;
+    this.stage.appendChild(this.aimap);
+    this._aiKey = '';
     this.mask = document.createElement('canvas');
     this.mask.className = 'viewer-mask';
     this.mask.width = SIZE;
@@ -303,6 +338,14 @@ class Viewer {
       const panWanted = ev.button === 1 || ev.button === 2 || sc._spaceDown;
       if (!panWanted && ev.button === 0 && sc.mode === 'paint' && sc.paint?.editable) {
         const bx = sc.paintBox();
+        if (bx && sc.inBox(bx, p.x, p.y) && sc.paint.brush === 3) {
+          sc.pushUndo(bx);
+          sc.wandFill(bx, p.x, p.y);
+          sc.paintChanged();
+          sc.onPaint();
+          this.drag = null;
+          return;
+        }
         if (bx && sc.inBox(bx, p.x, p.y)) {
           sc.pushUndo(bx);
           sc.applyBrush(bx, p.x, p.y);
@@ -409,6 +452,12 @@ class Viewer {
     this.svg.style.transform = `translate(${tx}px, ${ty}px)`;
     this.svg.setAttribute('width', SIZE * scale);
     this.svg.setAttribute('height', SIZE * scale);
+    this.aimap.style.display = sc.bare ? 'none' : '';
+    this.mask.style.display = sc.bare ? 'none' : '';
+    if (sc.bare) {
+      for (const g of [this.gAoi, this.gRail, this.gPaint, this.gBoxes, this.gCursor]) g.innerHTML = '';
+      return;
+    }
     // observation area: dim outside, dashed outline
     this.gAoi.innerHTML = '';
     if (sc.aoi && sc.showAoi) {
@@ -422,9 +471,11 @@ class Viewer {
         el('polyline', { points: line.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#FF922B', 'stroke-width': 2, 'stroke-dasharray': '10 5', 'vector-effect': 'non-scaling-stroke', opacity: 0.9 }, this.gRail);
       }
     }
+    this._renderAiMap();
     this._renderPaint();
     this.gBoxes.innerHTML = '';
     const fs = 12 / scale;
+    const placed = [];   // 已放的编号标签，叠在一起的往右错开
     for (const layer of Object.values(sc.layers)) {
       if (layer.viewer != null && layer.viewer !== this.index) continue;
       for (const b0 of layer.boxes) {
@@ -436,6 +487,12 @@ class Viewer {
           el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: `url(#hatch${this.id})`, stroke: '#F1F3F5', 'stroke-width': sel ? 2.5 : 1.5, 'stroke-dasharray': '5 3', 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
         } else if (layer.style === 'qline') {
           el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: 'none', stroke: 'rgba(241,243,245,.75)', 'stroke-width': 1, 'stroke-dasharray': '3 3', 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
+        } else if (layer.style === 'ai') {
+          el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: 'rgba(34,211,238,0.10)', stroke: 'rgba(0,0,0,.55)', 'stroke-width': 4, 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
+          el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: 'none', stroke: '#22D3EE', 'stroke-width': 2, 'stroke-dasharray': '7 4', 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
+        } else if (layer.style === 'ghost') {
+          el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: 'rgba(120,120,120,0.10)', stroke: 'rgba(210,214,220,.85)', 'stroke-width': 1.6, 'stroke-dasharray': '3 3', 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
+          el('line', { x1: b.x0, y1: b.y0, x2: b.x1, y2: b.y1, stroke: 'rgba(210,214,220,.7)', 'stroke-width': 1.2, 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
         } else if (layer.style === 'target') {
           if (target) el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: 'none', stroke: 'rgba(0,0,0,.55)', 'stroke-width': 4.5, 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
           el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: 'none', stroke: target ? '#fff' : 'rgba(255,255,255,.6)', 'stroke-width': target ? 2 : 1.3, 'stroke-dasharray': target ? '8 4' : '4 4', 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
@@ -443,11 +500,15 @@ class Viewer {
           el('rect', { x: b.x0, y: b.y0, width: w, height: h, fill: sel ? 'rgba(255,77,79,0.14)' : 'rgba(255,77,79,0.06)', stroke: '#FF4D4F', 'stroke-width': sel ? 3 : 2, 'vector-effect': 'non-scaling-stroke' }, this.gBoxes);
         }
         if (layer.labels === false) continue;
-        const lab = String(b0.id);
+        const lab = String(b0.label ?? b0.id);
         const lw = (lab.length * 7 + 8) / scale, lh = 16 / scale;
-        const labFill = layer.style === 'quality' ? '#495057' : layer.style === 'target' ? (target ? '#2f6db5' : 'rgba(31,38,51,.8)') : '#FF4D4F';
-        el('rect', { x: b.x0, y: b.y0 - lh, width: lw, height: lh, rx: 2 / scale, fill: labFill }, this.gBoxes);
-        const t = el('text', { x: b.x0 + 4 / scale, y: b.y0 - 4 / scale, 'font-size': fs, fill: '#fff', 'font-family': 'Arial, sans-serif', 'font-weight': 'bold' }, this.gBoxes);
+        let lx = b.x0;
+        for (let k = 0; k < 8 && placed.some(p => lx < p[0] + p[2] && lx + lw > p[0] && b.y0 - lh < p[1] + lh && b.y0 > p[1]); k++) lx += lw + 2 / scale;
+        placed.push([lx, b.y0 - lh, lw]);
+        const labFill = layer.style === 'quality' ? '#495057' : layer.style === 'target' ? (target ? '#2f6db5' : 'rgba(31,38,51,.8)')
+          : layer.style === 'ai' ? '#0e7490' : layer.style === 'ghost' ? '#6b7280' : '#FF4D4F';
+        el('rect', { x: lx, y: b.y0 - lh, width: lw, height: lh, rx: 2 / scale, fill: labFill }, this.gBoxes);
+        const t = el('text', { x: lx + 4 / scale, y: b.y0 - 4 / scale, 'font-size': fs, fill: '#fff', 'font-family': 'Arial, sans-serif', 'font-weight': 'bold' }, this.gBoxes);
         t.textContent = lab;
         if (sel) {
           const cx = b.x1 + 10 / scale, cy = b.y0 - 10 / scale;
@@ -464,6 +525,25 @@ class Viewer {
       }
     }
     this.renderCursor();
+  }
+
+  // AI 变化图：青色 = AI 认为变化，淡黄 = 拿不准（云、薄雾、反光水面等）。只在变化图、开关或窗口改变时重画。
+  _renderAiMap() {
+    const sc = this.scene, M = sc.aiMap;
+    const on = !!(M && M.show && (M.viewer == null || M.viewer === this.index));
+    const key = on ? `${sc.aiMapVersion}` : '';
+    if (key === this._aiKey) return;
+    this._aiKey = key;
+    const ctx = this.aimap.getContext('2d');
+    ctx.clearRect(0, 0, SIZE, SIZE);
+    if (!on) return;
+    const img = ctx.createImageData(SIZE, SIZE);
+    for (let n = 0; n < SIZE * SIZE; n++) {
+      const v = M.cells[n];
+      if (v === 1) img.data.set([0, 229, 255, 120], n * 4);
+      else if (v === 2 && M.showUnsure !== false) img.data.set([255, 214, 102, 55], n * 4);
+    }
+    ctx.putImageData(img, 0, 0);
   }
 
   // Painted cells (canvas, one canvas pixel per cell), their outlines and the cell grid of the current box.
@@ -507,6 +587,7 @@ class Viewer {
   renderCursor() {
     const sc = this.scene, p = sc.hover;
     this.gCursor.innerHTML = '';
+    if (sc.bare) return;
     if (!p) return;
     const s = sc.view.scale;
     const bx = sc.mode === 'paint' && sc.paint?.editable && !sc._spaceDown ? sc.paintBox() : null;

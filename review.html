@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 复核台 · 三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/work.css">
+<link rel="stylesheet" href="assets/css/review.css">
+</head>
+<body class="rv-body">
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link" href="work.html">判读</a>
+  <a class="link" href="board.html">实时看板</a>
+  <a class="link" href="leader.html">组长台</a>
+  <a class="link on" href="review.html">AI 复核台</a>
+  <span class="spacer"></span>
+  <span class="tiny" id="updated"></span>
+  <button class="mode-btn demo" id="modeBtn" title="切换演示模式 / 正式模式">演示模式</button>
+  <span class="tiny" title="字小时可以用浏览器缩放">字小按 Ctrl 和 + 放大</span>
+  <button class="btn sm ghost" id="helpBtn">快捷键</button>
+</nav>
+
+<div class="rv-app">
+  <!-- 左：待复核队列 -->
+  <aside class="rv-queue">
+    <div class="rv-sites" id="siteTabs"></div>
+    <select class="input rv-filter" id="fType">
+      <optgroup label="AI 建议">
+        <option value="ai-act">AI 建议要处理的（修改、不是变化、没法比较）</option>
+        <option value="ai-miss">有漏标提醒</option>
+        <option value="ai-confirm">AI 建议直接确认（有框）</option>
+      </optgroup>
+      <optgroup label="按同学的判断">
+        <option value="changes">同学判“有变化”</option>
+        <option value="none">同学判“没有明显不同”（抽查）</option>
+        <option value="uncomparable">同学判“没法比较”</option>
+        <option value="all">全部已判的期</option>
+      </optgroup>
+      <optgroup label="我的留言">
+        <option value="fb">我留过言的期（待定或有疑问）</option>
+      </optgroup>
+      <optgroup label="第三步">
+        <option value="check3">第三步待检查</option>
+      </optgroup>
+    </select>
+    <label class="small rv-only"><input type="checkbox" id="fOnly" checked> 只看我还没复核的</label>
+    <div class="rv-progress"><div class="progress"><i id="progBar" style="width:0"></i></div><span class="tiny" id="progText"></span></div>
+    <div class="rv-list" id="qList"></div>
+  </aside>
+
+  <!-- 中：两期影像 -->
+  <section class="rv-images">
+    <div class="rv-toolbar">
+      <div class="seg" id="viewSeg" title="数字键 1 / 2 / 3">
+        <button data-view="student">同学原样</button><button data-view="ai">AI 建议</button><button data-view="mine" class="on">我的决定</button>
+      </div>
+      <div class="seg" id="imgSeg" title="T 切换"><button data-img="tc" class="on">真彩色</button><button data-img="fc">植被假彩色</button></div>
+      <button class="tbtn" id="bareBtn" title="H：只看影像，隐藏所有框、观察范围、铁路和 AI 变化图">原图</button>
+      <button class="tbtn" id="mapBtn" title="M">AI 变化图</button>
+      <button class="tbtn" id="drawBtn" title="D">画框</button>
+      <button class="tbtn" id="fitBtn" title="F">复原</button>
+      <button class="tbtn" id="blinkBtn" title="按住 B 也可以：右图临时换成上一期，对比这块地原来是什么">右图看上一期</button>
+      <span class="rv-hint">滚轮放大 · 拖动平移 · 每个按钮的快捷键见按钮提示或右上角“快捷键”</span>
+    </div>
+    <div class="rv-pair"><div class="vbox" id="vA"></div><div class="vbox" id="vB"></div></div>
+    <div class="rv-legend">
+      <span><i class="lg red"></i>同学 / 我的框</span><span><i class="lg ghost"></i>AI 建议删除</span><span><i class="lg ai"></i>AI 漏标提醒</span>
+      <span><i class="lg cyan"></i>AI 变化图：变化</span><span><i class="lg yellow"></i>拿不准（云、雾、反光水面）</span><span><i class="lg aoi"></i>观察范围</span><span><i class="lg rail"></i>铁路</span>
+    </div>
+  </section>
+
+  <!-- 右：AI 分析与决定 -->
+  <aside class="rv-panel" id="panel">
+    <div class="rv-empty" id="emptyMsg"><h3>AI 辅助复核台</h3><p class="muted">从左边选一期开始。右边会显示 AI 对每个框的结论和依据、漏标提醒，以及建议的决定。</p>
+      <p class="tiny">AI 结论来自逐框的光谱核对、云掩膜、耀斑角、降雨、往年同期和逐个看图，只是建议；最终决定由你做。</p></div>
+    <div id="content" hidden>
+      <header class="rv-head"><div class="rv-nav"><button class="btn sm" id="prevBtn" title="← 或 K">‹ 上一期</button><button class="btn sm" id="nextBtn" title="→ 或 J">下一期 ›</button><span class="tiny" id="navPos"></span></div><h2 id="pTitle"></h2><div class="tiny" id="pSub"></div><div class="rv-conds" id="pConds"></div></header>
+      <div class="rv-sug" id="sugCard"></div>
+      <div class="rv-sec"><div class="rv-sh">同学的判读</div><div class="small" id="stuText"></div></div>
+      <div class="rv-sec"><div class="rv-sh">框 <span class="tiny" id="boxHint"></span><span class="sp"></span><button class="btn sm ghost" id="clearMine" title="把“我的决定”里的框全部清掉，自己从头画">清空我的框</button></div>
+        <div class="howto" id="howto">AI 和同学都不对时：在“我的决定”里删掉不对的框，按 D 画框、点选正确类别，需要时改下面的整体差异、写批注，最后按 S 保存。整对影像都看不清就按 U。</div>
+        <div class="boxlist" id="boxList"></div></div>
+      <div class="rv-sec" id="missSec"><div class="rv-sh">AI 漏标提醒</div><div class="boxlist" id="missList"></div></div>
+      <div class="rv-sec"><div class="rv-sh">整体差异（我的决定）</div><div class="chips" id="overallChips"></div></div>
+      <div class="rv-sec" id="s3Sec" hidden><div class="rv-sh">第三步检查 <span class="badge" id="s3State"></span></div><div class="small" id="s3Text"></div>
+        <div class="actions"><button class="btn sm" id="s3Toggle">隐藏同学涂色</button><button class="btn sm" data-dec3="confirmed">第三步没问题</button><button class="btn sm danger" data-dec3="returned">退回第三步</button></div></div>
+      <div class="rv-sec"><label class="rv-sh" for="comment">批注（写给同学；退回时必填）</label>
+        <textarea class="input" id="comment" maxlength="2000" placeholder="例如：框 2 是上一期的云，不画框"></textarea></div>
+      <div class="rv-sec"><label class="rv-sh" for="innote">内部备注（存数据库，同学看不到）</label>
+        <textarea class="input" id="innote" maxlength="2000" placeholder="例如：框 3 我也拿不准，可能是采石场，等高分影像再确认"></textarea>
+        <div class="tiny">每个框下面的“我的标记”和留言、这里的内部备注，都随下面任一按钮一起存进数据库（正式模式）；拿不准、先不下结论时点“只保存留言（待定）”。</div></div>
+      <div class="rv-decide">
+        <button class="btn" data-dec="confirmed" id="decConfirm" title="C">确认同学结果</button>
+        <button class="btn primary" data-dec="modified" id="decModify" title="S">按我的决定保存</button>
+        <button class="btn" data-dec="rejected" title="R">不是变化</button>
+        <button class="btn" data-dec="uncomparable" title="U">改为没法比较</button>
+        <button class="btn" data-dec="fbonly" id="decFb" title="N：只存留言和标记，不下结论，这一期仍留在待复核队列">只保存留言（待定）</button>
+        <button class="btn ghost" data-dec="note">只给同学写批注</button>
+        <button class="btn ghost" id="skipBtn" title="→">跳过</button>
+      </div>
+      <div class="err" id="err"></div>
+      <details class="rv-hist"><summary>历史记录</summary><div class="hist" id="hist"></div></details>
+    </div>
+  </aside>
+</div>
+
+<div class="modal-back" id="helpModal"><div class="modal"><h3>快捷键</h3>
+  <table class="rv-keys"><tbody>
+    <tr><td>← / →（或 K / J）</td><td>上一期 / 下一期</td></tr>
+    <tr><td>A</td><td>采用 AI 建议（把 AI 的删框、改类别、补漏标放进“我的决定”）</td></tr>
+    <tr><td>C</td><td>确认同学结果</td></tr>
+    <tr><td>S</td><td>按我的决定保存</td></tr>
+    <tr><td>R</td><td>不是变化</td></tr>
+    <tr><td>U</td><td>改为没法比较</td></tr>
+    <tr><td>N</td><td>只保存留言和标记（待定，不下结论）</td></tr>
+    <tr><td>1 / 2 / 3</td><td>看同学原样 / AI 建议 / 我的决定</td></tr>
+    <tr><td>T</td><td>真彩色 / 植被假彩色</td></tr>
+    <tr><td>H</td><td>原图：隐藏所有框、观察范围、铁路和 AI 变化图，只看影像（再按一次恢复）</td></tr>
+    <tr><td>M</td><td>显示或隐藏 AI 变化图</td></tr>
+    <tr><td>按住 B</td><td>右图临时换成上一期（闪烁对比）</td></tr>
+    <tr><td>D</td><td>画框（在“我的决定”里补框）</td></tr>
+    <tr><td>F</td><td>复原缩放</td></tr>
+    <tr><td>Delete</td><td>删除选中的框</td></tr>
+  </tbody></table>
+  <p class="tiny">正式模式下，决定写入数据库，格式与组长台相同；演示模式只存在这台电脑，可以随便试。</p>
+  <div class="actions"><button class="btn primary" id="helpClose">知道了</button></div></div></div>
+
+<div class="modal-back" id="modeModal"><div class="modal"><h3>切换到正式模式？</h3>
+  <p>正式模式下，你点的“确认 / 保存 / 不是变化 / 没法比较 / 批注 / 第三步检查”会写入数据库，同学马上能看到；确认有变化的期会开放第三步。写入的记录只能追加，不能删除（和组长台一样）。</p>
+  <p class="tiny">演示模式里做过的决定不会自动写入数据库。</p>
+  <div class="actions"><button class="btn" id="modeCancel">先不切换</button><button class="btn primary" id="modeOk">切换到正式模式</button></div></div></div>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="assets/js/review.js"></script>
+</body>
+</html>
