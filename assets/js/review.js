@@ -163,7 +163,7 @@ function loadMap(code, date) {
 
 // ---------------------------------------------------------------- 队列
 function stuData(code, p) { return stepTwo(latest[code][p.scene_id] || {}, reviewsOf(code, p.scene_id)).data; }
-// 10-01 季节复核：AI 结论更新（recheck.at）之前你已做的决定，若和新结论对不上（新结论要保留的框你删了、要删的框你留了、
+// 10-01 复核（季节类结论、暴雨后滑坡误判为涨水等）：AI 结论更新（recheck.at）之前你已做的决定，若和新结论对不上（新结论要保留的框你删了、要删的框你留了、
 // 或原结论是删/留而新结论改成“请看图定”），就返回这些框，这一期按“没复核”重新进入待复核队列
 const ACT_KEEP = new Set(['keep', 'retag']);
 function boxIoU(b, g) {
@@ -233,7 +233,7 @@ function renderList(keep = false) {
     const stu = c ? ({ changes: `${c.boxes?.length || 0} 框`, none: '无变化', uncomparable: '没法比较' })[c.status] || '' : '';
     const miss = a?.misses?.length ? ` · 漏${a.misses.length}` : '';
     const rcx = recheckConflicts(it.code, it.p).length;
-    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">季</span>' : '')}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
+    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">复</span>' : '')}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
     b.onclick = () => open(it);
     box.appendChild(b);
   }
@@ -326,7 +326,7 @@ async function open(it, keepWork = false) {
   const rcItems = a?.recheck?.items || [];
   const rcBad = new Set(recheckConflicts(code, p).map(x => x.box));
   const ACTN = { keep: '保留', retag: '保留并改类别', delete: '删除', check: '请看图定' };
-  const rcHtml = rcItems.length ? `<div class="recheck${rcBad.size ? ' bad' : ''}"><b>10-01 季节复核更新了这期的 AI 结论</b>${rcBad.size ? '：你在更新前做的决定和新结论对不上，请重看标红的框' : ''}
+  const rcHtml = rcItems.length ? `<div class="recheck${rcBad.size ? ' bad' : ''}"><b>10-01 复核更新了这期的 AI 结论</b>${rcBad.size ? '：你在更新前做的决定和新结论对不上，请重看标红的框' : ''}
     ${rcItems.map(x => `<div class="rci${rcBad.has(x.box) ? ' bad' : ''}">框${x.box}：${esc(x.old)}（${ACTN[x.old_action] || x.old_action}）→ <b>${esc(x.new)}</b>（${ACTN[x.new_action] || x.new_action}）<div class="tiny">${esc(x.ev)}</div></div>`).join('')}</div>` : '';
   $('sugCard').innerHTML = a
     ? `${rcHtml}<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
