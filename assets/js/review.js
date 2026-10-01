@@ -163,7 +163,33 @@ function loadMap(code, date) {
 
 // ---------------------------------------------------------------- 队列
 function stuData(code, p) { return stepTwo(latest[code][p.scene_id] || {}, reviewsOf(code, p.scene_id)).data; }
+// 10-01 季节复核：AI 结论更新（recheck.at）之前你已做的决定，若和新结论对不上（新结论要保留的框你删了、要删的框你留了、
+// 或原结论是删/留而新结论改成“请看图定”），就返回这些框，这一期按“没复核”重新进入待复核队列
+const ACT_KEEP = new Set(['keep', 'retag']);
+function boxIoU(b, g) {
+  const ix = Math.max(0, Math.min(b.x1, g[2]) - Math.max(b.x0, g[0])), iy = Math.max(0, Math.min(b.y1, g[3]) - Math.max(b.y0, g[1]));
+  const inter = ix * iy, ua = (b.x1 - b.x0) * (b.y1 - b.y0) + (g[2] - g[0]) * (g[3] - g[1]) - inter;
+  return ua > 0 ? inter / ua : 0;
+}
+function recheckConflicts(code, p) {
+  const a = aiOf(code, p);
+  if (!a?.recheck?.items?.length) return [];
+  const rv = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision))
+    .sort((x, y) => (isAfter(x, y) ? 1 : -1));
+  const last = rv.pop();
+  if (!last || new Date(last.created_at) >= new Date(a.recheck.at)) return [];
+  let boxes = [];
+  if (last.decision === 'modified') boxes = last.data?.status === 'uncomparable' ? [] : (last.data?.boxes || []);
+  else if (last.decision === 'confirmed') boxes = (latest[code][p.scene_id] || {}).compare?.data?.boxes || [];
+  return a.recheck.items.filter(it => {
+    const kept = boxes.some(b => boxIoU(b, it.geom) > 0.5);
+    if (ACT_KEEP.has(it.new_action)) return !kept;
+    if (it.new_action === 'delete') return kept;
+    return it.old_action !== 'check';
+  });
+}
 function isReviewed(code, p) {
+  if (recheckConflicts(code, p).length) return false;
   const l = latest[code][p.scene_id] || {};
   const lastRead = [l.quality, l.compare, l.precise].filter(Boolean).sort((a, b) => (isAfter(a, b) ? 1 : -1)).pop();
   const rv = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && r.decision !== 'note');
@@ -177,6 +203,7 @@ function matches(code, p, type) {
   const a = aiOf(code, p);
   if (type === 'ai-act') return ['modify', 'reject', 'uncomparable'].includes(a?.suggest?.decision);
   if (type === 'ai-miss') return !!a?.misses?.length;
+  if (type === 'recheck') return !!a?.recheck?.items?.length;
   if (type === 'ai-confirm') return a?.suggest?.decision === 'confirm' && !!c?.boxes?.length;
   if (type === 'changes') return c?.status === 'changes';
   if (type === 'none') return c?.status === 'none';
@@ -205,7 +232,8 @@ function renderList(keep = false) {
     b.className = cur && cur.code === it.code && cur.i === it.i ? 'cur' : '';
     const stu = c ? ({ changes: `${c.boxes?.length || 0} 框`, none: '无变化', uncomparable: '没法比较' })[c.status] || '' : '';
     const miss = a?.misses?.length ? ` · 漏${a.misses.length}` : '';
-    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
+    const rcx = recheckConflicts(it.code, it.p).length;
+    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">季</span>' : '')}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
     b.onclick = () => open(it);
     box.appendChild(b);
   }
@@ -295,8 +323,13 @@ async function open(it, keepWork = false) {
   // 建议卡
   const dec = a?.suggest?.decision || 'none';
   $('sugCard').className = `rv-sug ${a ? dec : 'none'}`;
+  const rcItems = a?.recheck?.items || [];
+  const rcBad = new Set(recheckConflicts(code, p).map(x => x.box));
+  const ACTN = { keep: '保留', retag: '保留并改类别', delete: '删除', check: '请看图定' };
+  const rcHtml = rcItems.length ? `<div class="recheck${rcBad.size ? ' bad' : ''}"><b>10-01 季节复核更新了这期的 AI 结论</b>${rcBad.size ? '：你在更新前做的决定和新结论对不上，请重看标红的框' : ''}
+    ${rcItems.map(x => `<div class="rci${rcBad.has(x.box) ? ' bad' : ''}">框${x.box}：${esc(x.old)}（${ACTN[x.old_action] || x.old_action}）→ <b>${esc(x.new)}</b>（${ACTN[x.new_action] || x.new_action}）<div class="tiny">${esc(x.ev)}</div></div>`).join('')}</div>` : '';
   $('sugCard').innerHTML = a
-    ? `<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
+    ? `${rcHtml}<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
        ${a.flags?.length ? `<div class="flags">${a.flags.map(esc).join('<br>')}</div>` : ''}
        <div class="row"><button class="btn sm primary" id="adoptBtn" title="A">采用 AI 建议</button><button class="btn sm" id="resetBtn">恢复同学原样</button></div>`
     : '<div class="t">这一期没有 AI 数据</div><div class="s">本机没有找到 ai/ai_' + code + '.json，可以照常复核。</div>';
