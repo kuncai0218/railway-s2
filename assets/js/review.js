@@ -246,6 +246,7 @@ function matches(code, p, type) {
   if (type === 'uncomparable') return c?.status === 'uncomparable' || q?.clear === 'no';
   if (type === 'check3') return stepThree(p, l, reviewsOf(code, p.scene_id)).state === 'done';
   if (type === 'fb') return !!latestFb(code, p.scene_id);
+  if (type === 'reply') return !!a?.again?.items?.some(x => x.sec === '留言答复');
   return true;
 }
 function buildItems() {
@@ -269,7 +270,7 @@ function renderList(keep = false) {
     const stu = c ? ({ changes: `${c.boxes?.length || 0} 框`, none: '无变化', uncomparable: '没法比较' })[c.status] || '' : '';
     const miss = a?.misses?.length ? ` · 漏${a.misses.length}` : '';
     const rcx = recheckConflicts(it.code, it.p).length || againPending(it.code, it.p);
-    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">复</span>' : '')}${a?.again?.items?.length && !rcx ? '<span class="agm">议</span>' : ''}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
+    b.innerHTML = `<span class="sg ${dec}">${DEC_SHORT[dec]}</span>第 ${it.i} 期 ${it.p.date}${isReviewed(it.code, it.p) ? '<span class="done">✓</span>' : ''}${rcx ? '<span class="rck">重看</span>' : (a?.recheck?.items?.length ? '<span class="rcs">复</span>' : '')}${a?.again?.items?.length && !rcx ? `<span class="agm">${a.again.items.every(x => x.info) ? '答' : '议'}</span>` : ''}${latestFb(it.code, it.p.scene_id) ? '<span class="fbm">言</span>' : ''}<small>同学：${stu}${miss}${a?.suggest?.summary ? ` · ${esc(a.suggest.summary.slice(0, 26))}` : ''}</small>`;
     b.onclick = () => open(it);
     box.appendChild(b);
   }
@@ -383,13 +384,13 @@ async function open(it, keepWork = false) {
   const agItems = a?.again?.items || [];
   const agPend = againPending(code, p);
   const SEC = { 二: '10-01 夜分歧复核 · AI 可能对，再看一眼', 三: '10-01 夜分歧复核 · 薄云期判法要统一', 四: '10-01 夜分歧复核 · 要修的记录',
-    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现' };
+    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言' };
   const lastDec = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision))
     .sort((x, y) => (isAfter(x, y) ? 1 : -1)).pop();
   const doneIt = x => !!lastDec && !!x.at && !!(lastDec._fresh || lastDec._pending || new Date(lastDec.created_at) >= new Date(x.at));
-  const agOne = x => `<div class="agi"><span class="sec">${esc(SEC[x.sec] || x.sec)}</span><div class="tt">${esc(x.title)}</div><div>${esc(x.text)}</div><div class="sug">建议：${esc(x.sug)}</div>${x.ref ? `<button class="btn sm" data-ref="${esc(x.ref)}">左图换成 ${esc(x.ref)}（最近一张清楚影像）</button>` : ''}</div>`;
+  const agOne = x => `<div class="agi${x.info ? ' info' : ''}"><span class="sec">${esc(SEC[x.sec] || x.sec)}</span>${x.info ? '<span class="sec ok">只是答复，不用重判</span>' : ''}<div class="tt">${esc(x.title)}</div><div>${esc(x.text)}</div><div class="sug">建议：${esc(x.sug)}</div>${x.ref ? `<button class="btn sm" data-ref="${esc(x.ref)}">左图换成 ${esc(x.ref)}（最近一张清楚影像）</button>` : ''}</div>`;
   const agLive = agItems.filter(x => !doneIt(x)), agOld = agItems.filter(doneIt);
-  const agHtml = agItems.length ? `<div class="again${agPend ? ' bad' : ''}"><b>放回复核的说明</b>${agPend ? '：你之前在这期做的决定先不算，看完下面的说明后重新做一次决定' : agLive.length ? '' : '：都已重判过'}
+  const agHtml = agItems.length ? `<div class="again${agPend ? ' bad' : ''}"><b>${!agPend && agLive.length && agLive.every(x => x.info) ? 'AI 答复你的留言' : '放回复核的说明'}</b>${agPend ? '：你之前在这期做的决定先不算，看完下面的说明后重新做一次决定' : agLive.length ? '' : '：都已重判过'}
     ${agLive.map(agOne).join('')}${agOld.length ? `<details class="agold"><summary>之前放回、你已重判过的说明（${agOld.length} 条）</summary>${agOld.map(agOne).join('')}</details>` : ''}</div>` : '';
   $('sugCard').innerHTML = a
     ? `${agHtml}${rcHtml}<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
@@ -540,10 +541,11 @@ function renderMisses() {
     const added = mine.boxes.some(x => x._miss === b._miss);
     const item = document.createElement('div');
     const low = m.conf_p != null && m.conf_p < CONF_MIN;
-    item.className = 'boxitem miss' + (added ? ' added' : '') + (low ? ' lowconf' : '');
+    const note = /^（(不对|已移到|说明)/.test(m.type || '');
+    item.className = 'boxitem miss' + (added ? ' added' : '') + (low ? ' lowconf' : '') + (note ? ' corr' : '');
     item.innerHTML = `<div class="bh"><span class="num">${b._miss}</span><span class="small"><b>${esc(m.type)}</b>${m.rail_m != null ? ` · 距铁路约 ${m.rail_m} 米` : ''}${m.area_ha ? ` · ${m.area_ha} 公顷` : ''}</span><span class="sp"></span>
-      <button class="btn sm ghost" data-act="focus">定位</button>${view === 'mine' ? (added ? '<button class="btn sm ghost" data-act="undo">撤回</button>' : '<button class="btn sm" data-act="add">加入我的决定</button>') : ''}</div>
-      <div class="ai">${confBadge(m) ? `<div class="cline">${confBadge(m)}</div>` : ''}<span class="g ${m.type.includes('水') ? 'water' : 'real'}">漏标</span>${esc(m.reason)}<div class="why">来源：${esc(m.source || '')}${m.confidence ? ` · 原把握：${esc(m.confidence)}` : ''} · 建议类别：${(m.suggest_tags || []).map(t => TAG[t] || t).join('、')}</div>${confEvidence(m)}${m.conf_note ? `<div class="why">${esc(m.conf_note)}</div>` : ''}${low ? `<div class="why lowtip">置信度低于 ${CONF_MIN}：不计入 AI 整体建议，“采用 AI 建议”也不会加入；看图觉得是，就点“加入我的决定”。</div>` : ''}${m.no_adopt ? `<div class="why lowtip">${esc(m.no_adopt_why || '“采用 AI 建议”不会加入这条，要加就点“加入我的决定”。')}</div>` : ''}</div>
+      <button class="btn sm ghost" data-act="focus">定位</button>${view === 'mine' ? (added ? '<button class="btn sm ghost" data-act="undo">撤回</button>' : note ? '<span class="tiny notetag">更正说明，不用加</span>' : '<button class="btn sm" data-act="add">加入我的决定</button>') : ''}</div>
+      <div class="ai">${!note && confBadge(m) ? `<div class="cline">${confBadge(m)}</div>` : ''}<span class="g ${note ? 'corr' : m.type.includes('水') ? 'water' : 'real'}">${note ? '更正' : '漏标'}</span>${esc(m.reason)}<div class="why">来源：${esc(m.source || '')}${m.confidence ? ` · 原把握：${esc(m.confidence)}` : ''} ${note ? '' : ` · 建议类别：${(m.suggest_tags || []).map(t => TAG[t] || t).join('、')}`}</div>${note ? '' : confEvidence(m)}${m.conf_note ? `<div class="why">${esc(m.conf_note)}</div>` : ''}${low && !note ? `<div class="why lowtip">置信度低于 ${CONF_MIN}：不计入 AI 整体建议，“采用 AI 建议”也不会加入；看图觉得是，就点“加入我的决定”。</div>` : ''}${m.no_adopt && !note ? `<div class="why lowtip">${esc(m.no_adopt_why || '“采用 AI 建议”不会加入这条，要加就点“加入我的决定”。')}</div>` : ''}</div>
       ${fbRow(fb.misses[b._miss], FB_MISS, '对这条提醒的留言（存数据库）')}`;
     bindFb(item, fb.misses, b._miss);
     item.addEventListener('click', e => {

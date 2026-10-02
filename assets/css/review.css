@@ -128,3 +128,10 @@ html, .rv-body { overflow-x: hidden; }
 .rv-sug .again details.agold summary { cursor: pointer; font-size: 12px; color: #64748b; }
 .rv-sug .again details.agold .agi { opacity: .85; }
 .agm { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 8px; background: #dbeafe; color: #1e3a8a; }
+
+/* 10-02 晚：只答复留言、不用重判的说明；漏标列表里的更正说明（不能加入决定） */
+.rv-sug .again .agi.info { background: #f8fafc; }
+.rv-sug .again .sec.ok { margin-left: 4px; background: #dcfce7; color: #14532d; }
+.boxitem.miss.corr { opacity: .85; border-style: dashed; }
+.boxitem.miss.corr .notetag { color: #64748b; padding: 0 4px; }
+.boxitem .ai .g.corr { background: #e2e8f0; color: #334155; }
