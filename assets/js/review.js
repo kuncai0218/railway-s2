@@ -285,6 +285,8 @@ function aiBox(a, b) {
     reason: `${op.src ? `${op.src}：` : ''}${op.reason || ''}`, confidence: op.confidence || null, seen: '看图', stale: false, note: op.note ?? null };
   const v = (a?.boxes || []).find(x => x.id === b.id);
   if (!v) return null;
+  // 只是框号相同、位置完全不同的框（组长删掉同学的框后，新加的框用了同一个号）不套用 AI 结论（10-02 晚：2025-06-17 新框被建议删除）
+  if (v.geom && boxIoU(b, v.geom) < 0.3) return null;
   const [x0, y0, x1, y1] = v.geom || [];
   return { ...v, stale: !(Math.abs(x0 - b.x0) < 0.6 && Math.abs(y0 - b.y0) < 0.6 && Math.abs(x1 - b.x1) < 0.6 && Math.abs(y1 - b.y1) < 0.6) };
 }
@@ -296,7 +298,7 @@ function proposal(code, p, sd) {
   const ov = new Set((sd?.overall || []).filter(o => o !== 'none' && o !== 'local'));
   for (const b of sboxes) {
     const v = aiBox(a, b);
-    if (v?.action === 'delete') { del.push(b); if (v.overall) ov.add(v.overall); continue; }
+    if (v?.action === 'delete' && !v.stale) { del.push(b); if (v.overall) ov.add(v.overall); continue; }   // 框改动过，AI 结论针对旧框：不自动删
     const nb = clone(b);
     if (v?.suggest_tags) nb.tags = [...v.suggest_tags];
     if (v?.note != null) nb.note = v.note;
