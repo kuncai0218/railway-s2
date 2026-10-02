@@ -11,7 +11,8 @@ const query = new URLSearchParams(location.search);
 const code = (query.get('site') || 'HY').toUpperCase();
 const practice = query.get('practice') === '1';   // practice mode: nothing leaves this browser
 const PRACTICE_KEY = `rs2_practice_${code}`;
-const TAG = Object.fromEntries(CHANGE_TAGS.map(t => [t.key, t.label]));
+// “农田”是组长复核时加的类别（第二步的选项里没有），第三步的框上要能显示
+const TAG = { farm: '农田', ...Object.fromEntries(CHANGE_TAGS.map(t => [t.key, t.label])) };
 const clone = x => JSON.parse(JSON.stringify(x));
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
 const emptyQ = () => ({ clear: null, reasons: [], other: '', boxes: [], also_blurry: false });
@@ -27,6 +28,28 @@ let editing = false;   // the open period was already finished: saving keeps you
 let k = 0, step = 1, q = emptyQ(), c = emptyC(), imgKind = 'tc';
 let pz = null;                  // step 3 working copy of the open period
 let brush = 1, brushSize = 1;   // kept from period to period
+let aiShow = true;              // 第三步：AI 预标（prefill/index.json 里列出的期才有；目前只有株洲南）
+const aiMaps = {};
+let prefillInfo = null;         // 本测点的预标说明 { version, dates, note }；没有预标时为 null
+const prefillReady = fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
+  .then(ix => { prefillInfo = ix?.[code] || null; return prefillInfo; });
+// 预标图 256×256：0 不涂、100 变化、200 拿不准（只在组长确认的框里有值）
+function loadAiMap(date) {
+  if (!aiMaps[date]) aiMaps[date] = prefillReady.then(info => (!info || !(info.dates || []).includes(date)) ? null : new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, 256, 256).data, cells = new Uint8Array(65536);
+      for (let n = 0; n < 65536; n++) { const v = d[n * 4]; cells[n] = v < 50 ? 0 : v < 150 ? 1 : 2; }
+      res(cells);
+    };
+    img.onerror = () => res(null);
+    img.src = `prefill/${code}/${date}.png?v=${encodeURIComponent(info.version || '')}`;
+  }));
+  return aiMaps[date];
+}
 
 const scene1 = new Scene();
 const scene2 = new Scene();
@@ -357,8 +380,10 @@ async function onSave2() {
 }
 
 // ---------- step 3 ----------
+// ai：这个框用过 AI 预标（记预标版本），组长检查时会和预标逐格比
 function packBox(bx) {
-  return { id: bx.id, x0: bx.x0, y0: bx.y0, x1: bx.x1, y1: bx.y1, c0: bx.c0, r0: bx.r0, w: bx.w, h: bx.h, rle: encodeCells(bx.cells), ...countCells(bx.cells) };
+  return { id: bx.id, x0: bx.x0, y0: bx.y0, x1: bx.x1, y1: bx.y1, c0: bx.c0, r0: bx.r0, w: bx.w, h: bx.h, rle: encodeCells(bx.cells), ...countCells(bx.cells),
+    ...(bx.ai ? { ai: bx.ai } : {}) };
 }
 const painted = bx => { const n = countCells(bx.cells); return n.n1 + n.n2 > 0; };
 
@@ -383,6 +408,7 @@ function buildPaint() {
       }
     }
     bx.moved = !sameGeom(m, b);
+    if (m.ai) bx.ai = m.ai;
     return bx;
   });
   pz = { scene: p.scene_id, boxes };
@@ -392,6 +418,30 @@ function buildPaint() {
   scene3.setLayer('prevQ', clone(prevQuality()?.boxes || []), { style: 'qline', viewer: 0, labels: false });
   scene3.setLayer('curQ', clone(q.boxes || []), { style: 'qline', viewer: 1, labels: false });
   if (first) requestAnimationFrame(() => scene3.focusBox(first, 1.6));
+  scene3.setAiMap(null);
+  $('aiBox3').hidden = true; $('toggleAi').hidden = true; $('wandBtn').hidden = true;
+  const sid = p.scene_id;
+  loadAiMap(p.date).then(cells => {
+    if (!pz || pz.scene !== sid) return;
+    if (!cells) { if (brush === 3) { brush = 1; if (scene3.paint) scene3.paint.brush = 1; renderBrushUI(); } return; }
+    scene3.setAiMap({ cells, show: aiShow, viewer: null });
+    $('aiBox3').hidden = false; $('toggleAi').hidden = false; $('wandBtn').hidden = false;
+    $('aiNote3').textContent = prefillInfo?.note || '';
+    $('toggleAi').classList.toggle('on', aiShow);
+  });
+}
+
+// 用 AI 预标填一个框的格子（1 变化、2 拿不准、0 不涂），可以撤销
+function fillFromAI(bx) {
+  const cells = scene3.aiMap?.cells;
+  if (!cells) return false;
+  scene3.pushUndo(bx);
+  for (let j = 0; j < bx.h; j++) for (let i = 0; i < bx.w; i++) {
+    const v = cells[(bx.r0 + j) * 256 + bx.c0 + i];
+    bx.cells[j * bx.w + i] = v === 1 ? 1 : v === 2 ? 2 : 0;
+  }
+  bx.ai = prefillInfo?.version || 'ai';
+  return true;
 }
 
 function renderPanel3() {
@@ -470,7 +520,8 @@ async function onSave3() {
     return;
   }
   const l = latest[cur().scene_id] || {};
-  const data = { compare_id: l.compare?.id || null, review_id: s3.two.verdict?.id || null, boxes: pz.boxes.map(packBox) };
+  const data = { compare_id: l.compare?.id || null, review_id: s3.two.verdict?.id || null, boxes: pz.boxes.map(packBox),
+    ...(pz.boxes.some(b => b.ai) ? { prefill: prefillInfo?.version || 'ai' } : {}) };
   if (JSON.stringify(data).length > 55000) { $('err3').textContent = '涂得太零碎，记录太大存不下。请把零散的单个格子整理一下再保存。'; return; }
   const btn = $('save3');
   btn.disabled = true;
@@ -554,7 +605,7 @@ function renderDoneCard() {
   const versions = rows.filter(r => r.scene_id === p.scene_id).length;
   const lastAt = [l.quality, l.compare, l.precise].filter(Boolean).map(r => r.created_at).sort().pop();
   // step 3 feedback is already in its own line
-  const rv = practice ? null : [...reviewsOf(p)].reverse().find(r => r.kind !== 'precise');
+  const rv = practice ? null : [...reviewsOf(p)].reverse().find(r => r.kind !== 'precise' && !(r.decision === 'note' && r.data?.kind === 'leader_feedback'));
   const line3 = s3.state && s3.state !== 'rejected'
     ? `<div class="dl"><span>第三步</span>${CARD3[s3.state]}${s3.check?.decision === 'returned' && s3.check.comment ? `：${esc(s3.check.comment)}` : ''}</div>` : '';
   const btn3 = canStep3(s3) ? `<button class="btn sm${TODO3.includes(s3.state) ? ' primary' : ''}" data-edit="3">${TODO3.includes(s3.state) ? '做第三步' : '修改第三步'}</button>` : '';
@@ -706,6 +757,21 @@ function wire() {
   });
   $('togglePaint').onclick = () => { if (!scene3.paint) return; scene3.paint.show = !scene3.paint.show; scene3.render(); renderPaintToggles(); };
   $('toggleGrid').onclick = () => { if (!scene3.paint) return; scene3.paint.grid = !scene3.paint.grid; scene3.render(); renderPaintToggles(); };
+  $('toggleAi').onclick = () => { aiShow = !aiShow; scene3.toggleAiMap(aiShow); $('toggleAi').classList.toggle('on', aiShow); };
+  $('aiFill1').onclick = () => {
+    const bx = pz?.boxes.find(b => b.id === scene3.paint?.current);
+    if (!bx || !fillFromAI(bx)) return;
+    scene3.paintChanged(); saveDraft(); renderPBoxList();
+    const { n1, n2 } = countCells(bx.cells);
+    toast(n1 + n2 ? `框 ${bx.id} 已按 AI 预标（变化 ${n1} 格、拿不准 ${n2} 格），请检查修改` : `AI 在框 ${bx.id} 里没看出变化，请自己涂`);
+  };
+  $('aiFillAll').onclick = () => {
+    if (!pz || !scene3.aiMap) return;
+    let empty = 0;
+    for (const bx of pz.boxes) { fillFromAI(bx); const { n1, n2 } = countCells(bx.cells); if (!n1 && !n2) empty++; }
+    scene3.paintChanged(); saveDraft(); renderPBoxList();
+    toast(`所有框已按 AI 预标${empty ? `，其中 ${empty} 个框 AI 没看出变化，要自己涂` : ''}；请逐框检查`);
+  };
   $('undo3').onclick = () => { if (!scene3.undo()) toast('没有可以撤销的操作'); };
   $('next3').onclick = () => {
     if (!pz) return;

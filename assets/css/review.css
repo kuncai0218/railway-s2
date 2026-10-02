@@ -124,4 +124,7 @@ html, .rv-body { overflow-x: hidden; }
 .rv-sug .again .sug { margin-top: 3px; color: #14532d; }
 .rv-sug .again .btn { margin-top: 6px; }
 .rv-sug .again .btn.on { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+.rv-sug .again details.agold { margin-top: 8px; color: #475569; }
+.rv-sug .again details.agold summary { cursor: pointer; font-size: 12px; color: #64748b; }
+.rv-sug .again details.agold .agi { opacity: .85; }
 .agm { margin-left: 6px; font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 8px; background: #dbeafe; color: #1e3a8a; }

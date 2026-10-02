@@ -133,6 +133,31 @@ async function loadAll() {
   $('updated').textContent = `数据更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
 }
 
+// 第三步 AI 预标（prefill/<测点>/<日期>.png，和同学判读页同一份；index.json 列出有预标的期）：检查第三步时和同学涂的逐格比
+let prefillIx = null;
+const prefillIndex = () => prefillIx || (prefillIx = fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null));
+const preCache = {};
+function loadPrefill(code, date) {
+  const key = `${code}/${date}`;
+  if (!preCache[key]) preCache[key] = prefillIndex().then(ix => {
+    const info = ix?.[code];
+    if (!info || !info.dates.includes(date)) return null;
+    return new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, 256, 256).data, cells = new Uint8Array(65536);
+        for (let n = 0; n < 65536; n++) { const v = d[n * 4]; cells[n] = v < 50 ? 0 : v < 150 ? 1 : 2; }
+        res(cells);
+      };
+      img.onerror = () => res(null);
+      img.src = `prefill/${code}/${date}.png?v=${encodeURIComponent(info.version)}`;
+    });
+  });
+  return preCache[key];
+}
 const mapCache = {};
 function loadMap(code, date) {
   const key = `${code}/${date}`;
@@ -251,7 +276,12 @@ function renderList(keep = false) {
 }
 
 // ---------------------------------------------------------------- AI 建议 → 一份完整的第二步数据
+const geomClose = (g, b) => !!g && Math.abs(g[0] - b.x0) < 0.6 && Math.abs(g[1] - b.y0) < 0.6 && Math.abs(g[2] - b.x1) < 0.6 && Math.abs(g[3] - b.y1) < 0.6;
 function aiBox(a, b) {
+  // 放回复核的期（10-02 起）：对组长已保存的框直接给结论和动作，按框号和范围对上，优先于原结论（原结论只针对同学的框）
+  const op = (a?.again?.ops || []).find(o => o.box === b.id && geomClose(o.geom, b));
+  if (op) return { id: b.id, geom: op.geom, verdict: op.verdict, group: op.group, action: op.action, suggest_tags: op.tags || null, overall: op.overall || null,
+    reason: `${op.src ? `${op.src}：` : ''}${op.reason || ''}`, confidence: op.confidence || null, seen: '看图', stale: false, note: op.note ?? null };
   const v = (a?.boxes || []).find(x => x.id === b.id);
   if (!v) return null;
   const [x0, y0, x1, y1] = v.geom || [];
@@ -268,13 +298,16 @@ function proposal(code, p, sd) {
     if (v?.action === 'delete') { del.push(b); if (v.overall) ov.add(v.overall); continue; }
     const nb = clone(b);
     if (v?.suggest_tags) nb.tags = [...v.suggest_tags];
+    if (v?.note != null) nb.note = v.note;
     keep.push(nb);
   }
   let next = sboxes.reduce((m, b) => Math.max(m, b.id || 0), 0) + 1;
   const adds = (a.misses || []).map(m => ({ id: next++, x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1, tags: [...(m.suggest_tags || [])], note: `AI 提醒：${m.type}`, _miss: m.id }));
   // 置信度低于 CONF_MIN 的提醒照样显示，但不进“采用 AI 建议”（与整体建议的算法一致），看图后可以单独点“加入我的决定”
-  const strong = new Set((a.misses || []).filter(m => m.conf_p == null || m.conf_p >= CONF_MIN).map(m => m.id));
-  const boxes = [...keep, ...adds.filter(b => strong.has(b._miss))];
+  const strong = new Set((a.misses || []).filter(m => (m.conf_p == null || m.conf_p >= CONF_MIN) && !m.no_adopt).map(m => m.id));
+  // 组长已经加过的提醒（框还在，或放回复核建议删掉）不再加一次（2026-04-26：按过 A 之后再按 A，同一条提醒被加了两次）
+  const have = b => keep.some(x => sameGeom(x, b)) || del.some(x => sameGeom(x, b));
+  const boxes = [...keep, ...adds.filter(b => strong.has(b._miss) && !have(b))];
   const unc = a.suggest?.decision === 'uncomparable';
   const status = unc ? 'uncomparable' : boxes.length ? 'changes' : 'none';
   const o = [...ov];
@@ -309,6 +342,7 @@ async function open(it, keepWork = false) {
     mine = sd && sd.status !== 'uncomparable' ? clone(sd) : { status: 'none', overall: [], other: sd?.other || '', boxes: [] };
     mine.boxes = mine.boxes || [];
     mine.boxes.forEach(b => { b.tags = b.tags || []; b.note = b.note || ''; });
+    linkMisses(a);
     $('comment').value = '';
     $('err').textContent = '';
     const last = latestFb(code, p.scene_id);
@@ -348,9 +382,15 @@ async function open(it, keepWork = false) {
     }).join('')}</div>` : '';
   const agItems = a?.again?.items || [];
   const agPend = againPending(code, p);
-  const SEC = { 二: '第二部分 · AI 可能对，再看一眼', 三: '第三部分 · 薄云期判法要统一', 四: '第四部分 · 要修的记录' };
-  const agHtml = agItems.length ? `<div class="again${agPend ? ' bad' : ''}"><b>10-01 夜分歧复核</b>${agPend ? '：你之前在这期做的决定先不算，看完下面的说明后重新做一次决定' : ''}
-    ${agItems.map(x => `<div class="agi"><span class="sec">${esc(SEC[x.sec] || x.sec)}</span><div class="tt">${esc(x.title)}</div><div>${esc(x.text)}</div><div class="sug">建议：${esc(x.sug)}</div>${x.ref ? `<button class="btn sm" data-ref="${esc(x.ref)}">左图换成 ${esc(x.ref)}（最近一张清楚影像）</button>` : ''}</div>`).join('')}</div>` : '';
+  const SEC = { 二: '10-01 夜分歧复核 · AI 可能对，再看一眼', 三: '10-01 夜分歧复核 · 薄云期判法要统一', 四: '10-01 夜分歧复核 · 要修的记录',
+    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现' };
+  const lastDec = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision))
+    .sort((x, y) => (isAfter(x, y) ? 1 : -1)).pop();
+  const doneIt = x => !!lastDec && !!x.at && !!(lastDec._fresh || lastDec._pending || new Date(lastDec.created_at) >= new Date(x.at));
+  const agOne = x => `<div class="agi"><span class="sec">${esc(SEC[x.sec] || x.sec)}</span><div class="tt">${esc(x.title)}</div><div>${esc(x.text)}</div><div class="sug">建议：${esc(x.sug)}</div>${x.ref ? `<button class="btn sm" data-ref="${esc(x.ref)}">左图换成 ${esc(x.ref)}（最近一张清楚影像）</button>` : ''}</div>`;
+  const agLive = agItems.filter(x => !doneIt(x)), agOld = agItems.filter(doneIt);
+  const agHtml = agItems.length ? `<div class="again${agPend ? ' bad' : ''}"><b>放回复核的说明</b>${agPend ? '：你之前在这期做的决定先不算，看完下面的说明后重新做一次决定' : agLive.length ? '' : '：都已重判过'}
+    ${agLive.map(agOne).join('')}${agOld.length ? `<details class="agold"><summary>之前放回、你已重判过的说明（${agOld.length} 条）</summary>${agOld.map(agOne).join('')}</details>` : ''}</div>` : '';
   $('sugCard').innerHTML = a
     ? `${agHtml}${rcHtml}<div class="t">${esc(a.suggest.title)}</div>${a.suggest.summary ? `<div class="s">${esc(a.suggest.summary)}</div>` : ''}
        ${a.flags?.length ? `<div class="flags">${a.flags.map(esc).join('<br>')}</div>` : ''}
@@ -373,7 +413,7 @@ async function open(it, keepWork = false) {
   curPrevQ = clone(pq?.boxes || []);
   scene.setLayer('prevQ', clone(curPrevQ), { style: 'quality', viewer: 0, labels: false });
   scene.setLayer('curQ', clone(q?.boxes || []), { style: 'quality', viewer: 1, labels: false });
-  const pb = (s3.precise?.data?.boxes || []).map(m => ({ id: m.id, c0: m.c0, r0: m.r0, w: m.w, h: m.h, cells: decodeCells(m.rle, m.w * m.h) }));
+  const pb = (s3.precise?.data?.boxes || []).map(m => ({ id: m.id, c0: m.c0, r0: m.r0, w: m.w, h: m.h, cells: decodeCells(m.rle, m.w * m.h), ai: m.ai || null }));
   scene.setPaint(pb.length ? { boxes: pb, current: null, brush: 1, size: 1, editable: false, show: showPaint, grid: false } : null);
   setLayers();
   renderBoxes();
@@ -389,7 +429,9 @@ async function open(it, keepWork = false) {
   scene.setAiMap(cells ? { cells, show: showMap, viewer: 1, highlight: hl, fadeOthers: true } : null);
   $('mapBtn').disabled = !cells;
   $('mapBtn').classList.toggle('on', !!cells && showMap);
-  if (pb.length && cells) renderS3(pb, cells);
+  const pre = pb.some(m => m.ai) ? await loadPrefill(code, p.date) : null;
+  if (cur !== it) return;
+  if (pb.length && (cells || pre)) renderS3(pb, cells, pre);
 }
 
 function setLayers() {
@@ -501,14 +543,18 @@ function renderMisses() {
     item.className = 'boxitem miss' + (added ? ' added' : '') + (low ? ' lowconf' : '');
     item.innerHTML = `<div class="bh"><span class="num">${b._miss}</span><span class="small"><b>${esc(m.type)}</b>${m.rail_m != null ? ` · 距铁路约 ${m.rail_m} 米` : ''}${m.area_ha ? ` · ${m.area_ha} 公顷` : ''}</span><span class="sp"></span>
       <button class="btn sm ghost" data-act="focus">定位</button>${view === 'mine' ? (added ? '<button class="btn sm ghost" data-act="undo">撤回</button>' : '<button class="btn sm" data-act="add">加入我的决定</button>') : ''}</div>
-      <div class="ai">${confBadge(m) ? `<div class="cline">${confBadge(m)}</div>` : ''}<span class="g ${m.type.includes('水') ? 'water' : 'real'}">漏标</span>${esc(m.reason)}<div class="why">来源：${esc(m.source || '')}${m.confidence ? ` · 原把握：${esc(m.confidence)}` : ''} · 建议类别：${(m.suggest_tags || []).map(t => TAG[t] || t).join('、')}</div>${confEvidence(m)}${m.conf_note ? `<div class="why">${esc(m.conf_note)}</div>` : ''}${low ? `<div class="why lowtip">置信度低于 ${CONF_MIN}：不计入 AI 整体建议，“采用 AI 建议”也不会加入；看图觉得是，就点“加入我的决定”。</div>` : ''}</div>
+      <div class="ai">${confBadge(m) ? `<div class="cline">${confBadge(m)}</div>` : ''}<span class="g ${m.type.includes('水') ? 'water' : 'real'}">漏标</span>${esc(m.reason)}<div class="why">来源：${esc(m.source || '')}${m.confidence ? ` · 原把握：${esc(m.confidence)}` : ''} · 建议类别：${(m.suggest_tags || []).map(t => TAG[t] || t).join('、')}</div>${confEvidence(m)}${m.conf_note ? `<div class="why">${esc(m.conf_note)}</div>` : ''}${low ? `<div class="why lowtip">置信度低于 ${CONF_MIN}：不计入 AI 整体建议，“采用 AI 建议”也不会加入；看图觉得是，就点“加入我的决定”。</div>` : ''}${m.no_adopt ? `<div class="why lowtip">${esc(m.no_adopt_why || '“采用 AI 建议”不会加入这条，要加就点“加入我的决定”。')}</div>` : ''}</div>
       ${fbRow(fb.misses[b._miss], FB_MISS, '对这条提醒的留言（存数据库）')}`;
     bindFb(item, fb.misses, b._miss);
     item.addEventListener('click', e => {
       if (e.target.dataset.fb || e.target.dataset.fbt) return;
       const act = e.target.dataset.act;
       if (act === 'focus') { scene.focusBox(b); return; }
-      if (act === 'add') { const nb = clone(b); nb.id = scene.nextId(); mine.boxes.push(nb); afterEdit(); toast(`已加入：框 ${nb.id}`); }
+      if (act === 'add') {
+        const dup = mine.boxes.find(x => sameGeom(x, b));
+        if (dup) { toast(`这条提醒已经在你的决定里了（框 ${dup.id}）`); return; }
+        const nb = clone(b); nb.id = scene.nextId(); mine.boxes.push(nb); afterEdit(); toast(`已加入：框 ${nb.id}`);
+      }
       if (act === 'undo') { const k = mine.boxes.findIndex(x => x._miss === b._miss); if (k >= 0) mine.boxes.splice(k, 1); afterEdit(); }
     });
     list.appendChild(item);
@@ -559,11 +605,16 @@ function afterEdit() {
   const changed = !sameData(packMine(), curS3?.two?.data && curS3.two.data.status !== 'uncomparable' ? curS3.two.data : null);
   $('decModify').classList.toggle('primary', changed);
 }
+// 已经加进决定的提醒：按范围认回来（_miss 不存进数据库），提醒上显示“撤回”，不会再加一次（2026-04-26 同一条提醒加了两次）
+function linkMisses(a) {
+  for (const m of a?.misses || []) { const hit = mine.boxes.find(x => !x._miss && sameGeom(x, m)); if (hit) hit._miss = m.id; }
+}
 function adoptAI() {
   if (!prop) return;
   if (prop.decision === 'uncomparable') { toast('AI 建议改为“没法比较”：直接点“改为没法比较”（U）'); $('comment').value = prop.comment; return; }
   mine = clone(prop.data);
   mine.boxes.forEach(b => { b.tags = b.tags || []; b.note = b.note || ''; });
+  linkMisses(aiOf(cur.code, cur.p));
   mine.overall = (mine.overall || []).filter(o => o !== 'none' && o !== 'local');
   if (!$('comment').value.trim()) $('comment').value = prop.comment;
   setView('mine');
@@ -572,7 +623,7 @@ function adoptAI() {
 }
 
 // ---------------------------------------------------------------- 第三步检查
-function renderS3(pb, cells) {
+function renderS3(pb, cells, pre) {
   const st = curS3?.state;
   const show = ['done', 'returned', 'checked'].includes(st);
   $('s3Sec').hidden = !show;
@@ -586,7 +637,13 @@ function renderS3(pb, cells) {
       if (s) n1++; if (a) ai1++; if (s && a) both++;
     }
     const iou = cells && n1 + ai1 - both > 0 ? `，与 AI 变化图重合 ${Math.round(100 * both / (n1 + ai1 - both))}%` : '';
-    lines.push(`框 ${m.id}：同学涂“变化” ${n1} 格${cells ? `，AI 认为变化 ${ai1} 格${iou}` : ''}`);
+    let used = '';
+    if (m.ai) {   // 同学用了第三步的 AI 预标：和预标逐格比，看改了多少（一格没改的要特别看一眼）
+      let diff = 0;
+      if (pre) for (let j = 0; j < m.h; j++) for (let i = 0; i < m.w; i++) if (m.cells[j * m.w + i] !== pre[(m.r0 + j) * 256 + m.c0 + i]) diff++;
+      used = pre ? `（用了 AI 预标，改了 ${diff} 格${diff ? '' : '，<b>一格没改</b>'}）` : '（用了 AI 预标）';
+    }
+    lines.push(`框 ${m.id}：同学涂“变化” ${n1} 格${used}${cells ? `，AI 认为变化 ${ai1} 格${iou}` : ''}`);
   }
   $('s3Text').innerHTML = lines.join('<br>') || '同学还没涂。';
 }
@@ -644,6 +701,22 @@ async function decide(dec) {
       && !confirm(`批注里写着“没法比较”，但这次保存的是“${say}”。同学会看到这条批注。\n\n仍要这样保存吗？（取消后可以改批注，或按 U 改为没法比较）`)) return;
     if (dec === 'uncomparable' && /漏标/.test(comment)
       && !confirm('批注里写着“漏标”，但这次保存的是“没法比较”（框和漏标都不算）。同学会看到这条批注。\n\n仍要这样保存吗？')) return;
+    if (dec === 'modified' || dec === 'confirmed') {
+      // 批注里每一句“漏标：X”都要有一个从提醒加进来的框（框的备注是“AI 提醒：X……”）；确认同学结果时漏标一个也加不进去
+      const head = t => t.replace(/^AI 提醒：/, '').split('（')[0].trim();
+      const kept = dec === 'modified' ? mine.boxes : (curS3?.two?.data?.boxes || []);   // 确认时保留的是第二步现在的框（组长改过的就是组长的框）
+      const lack = [];
+      for (const t of new Set([...comment.matchAll(/漏标：([^（；;\n]+)/g)].map(x => x[1].trim()))) {
+        const said = comment.split(`漏标：${t}`).length - 1;
+        const have = kept.filter(b => (b.note || '').startsWith('AI 提醒：') && head(b.note) === t).length;
+        if (said > have) lack.push(t);
+      }
+      if (lack.length && !confirm(`批注里写着“漏标：${lack.join('、')}”，但${dec === 'confirmed' ? '这次是“确认同学结果”，现在的框里没有对应的框，漏标不会加进去' : '决定里没有对应的框'}。同学会看到这条批注。\n\n仍要这样保存吗？（取消后可以删掉批注里的这几句，或在提醒上点“加入我的决定”）`)) return;
+    }
+  }
+  if (dec === 'modified') {
+    const dup = mine.boxes.find((x, k) => mine.boxes.some((y, j) => j < k && sameGeom(x, y)));
+    if (dup && !confirm(`框 ${dup.id} 和另一个框范围完全一样，重复了。\n\n仍要这样保存吗？（取消后删掉一个再保存）`)) return;
   }
   if (dec === 'modified') {
     const bad = mine.boxes.find(b => !b.tags.length && !b.note);

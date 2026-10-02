@@ -36,7 +36,7 @@
       <div class="seg" id="segMode"><button id="modePan" class="on">拖动 / 缩放</button><button id="modeDraw">画框</button></div>
       <div class="seg" id="segImg"><button data-img="tc" class="on">真彩色</button><button data-img="fc">植被假彩色</button></div>
       <div class="seg" id="segShow"><button data-show="aoi" class="on">观察范围</button><button data-show="rail" class="on">铁路</button></div>
-      <div class="seg" id="segPaint" hidden><button id="togglePaint" class="on" title="键盘 H 也可以切换">涂色</button><button id="toggleGrid" class="on">格子线</button></div>
+      <div class="seg" id="segPaint" hidden><button id="togglePaint" class="on" title="键盘 H 也可以切换">涂色</button><button id="toggleGrid" class="on">格子线</button><button id="toggleAi" hidden title="显示或隐藏 AI 预标">AI 预标</button></div>
       <div class="seg"><button id="zin" title="放大">＋</button><button id="zout" title="缩小">－</button><button id="zfit" title="复原">复原</button></div>
       <span class="hint" id="hint"></span>
     </div>
@@ -93,8 +93,13 @@
         <li>框画得不对（太小、偏了、不该框），不要自己改，点下面的“有疑问，提问”告诉组长。</li>
       </ul>
       <div class="field"><span class="label">画笔</span>
-        <div class="brushes" id="brushes"><button data-brush="1"><i class="sw b1"></i>变化</button><button data-brush="2"><i class="sw b2"></i>拿不准</button><button data-brush="0"><i class="sw b0"></i>橡皮</button></div>
+        <div class="brushes" id="brushes"><button data-brush="1"><i class="sw b1"></i>变化</button><button data-brush="2"><i class="sw b2"></i>拿不准</button><button data-brush="0"><i class="sw b0"></i>橡皮</button><button data-brush="3" id="wandBtn" hidden title="点一下，把 AI 认为变化、连成一片的格子都涂成变化"><i class="sw b1"></i>魔棒（按 AI 连片）</button></div>
         <div class="sizes" id="sizes"><span>画笔大小</span><button data-size="1">1 格</button><button data-size="2">2×2</button><button data-size="3">3×3</button></div></div>
+      <div class="field" id="aiBox3" hidden><span class="label">AI 预标（只是建议，用了以后请逐格检查、修改）</span>
+        <div class="tiny" id="aiNote3"></div>
+        <div class="actions" style="margin-top:4px"><button class="btn sm" id="aiFill1">这个框用 AI 预标</button><button class="btn sm" id="aiFillAll">所有框都用 AI 预标</button></div>
+        <div class="tiny" style="margin-top:4px">图上青色是 AI 认为变化的格子，淡黄是 AI 拿不准的（薄云、反光水面、边上的混合像元）。用 AI 预标后，“变化”涂成红色、“拿不准”涂成黄色，再用画笔和橡皮改；点“撤销”可以恢复。
+          AI 常见的错：田块边、路边多涂或少涂一两格；水边涨落的格子；只有一两格的小变化。组长检查时能看到你在预标上改了多少格，看过、确认没问题的格子不用改。</div></div>
       <div class="field"><span class="label">这一期的框（一个一个涂，涂完点“下一个框”）</span>
         <div class="boxlist" id="pBoxList"></div></div>
       <div class="err" id="err3"></div>
