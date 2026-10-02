@@ -103,3 +103,9 @@ body.work { height: 100vh; display: flex; flex-direction: column; overflow: hidd
 .boxitem .moved { color: var(--danger); font-weight: 700; }
 .boxitem .pbtns { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
 .plist small .s3 { color: #b26b00; }
+
+/* 2026-10-03 前图规则：框在前图里看不清时的提示 */
+.boxitem .boxbefore { margin-top: 6px; line-height: 1.6; }
+.boxitem .boxbefore:empty { display: none; }
+.boxitem .boxbefore .warnt { color: #b45309; margin-right: 4px; }
+.boxitem .boxbefore .btn { margin: 2px 4px 0 0; }

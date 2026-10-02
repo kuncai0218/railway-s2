@@ -162,3 +162,82 @@ export function countCells(cells) {
   for (const x of cells) { if (x === 1) n1++; else if (x === 2) n2++; }
   return { n1, n2 };
 }
+
+// ---------- 前图规则（2026-10-03）：标签要和“前图 → 这一期”这一对影像对得上 ----------
+// 和离线导出 pair_consistency_20261002/脚本/pairing.py 是同一条规则，改一边要改另一边。
+//   整张前图：上一期在观察范围里被云挡住过半（periods_*.json 的 obs），或第一步判“基本看不清”，就往前找最近一张被挡住少于两成的（最多 120 天）。
+//   框的前图：整张前图在框里被挡住两成以上（云掩膜 cm 加那一期第一步圈的“看不清”），或水的框遇上反光（耀斑角 < 18°），就往前找框里看得清的。
+export const PAIR = { OBS_IMG: 0.5, OBS_GOOD: 0.2, OBS_BOX: 0.2, GLINT: 18, MAX_BACK: 120 };
+export const dayGap = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 864e5);
+// latestOf(scene_id) → 那一期的最新记录 { quality, compare, precise }
+export function imageBefore(periods, k, latestOf) {
+  const prev = k - 1;
+  if (prev < 0) return { i: null, prev, why: '', moved: false };
+  const no = j => latestOf(periods[j].scene_id)?.quality?.data?.clear === 'no';
+  const obs = j => periods[j].obs ?? 0;
+  if (obs(prev) < PAIR.OBS_IMG && !no(prev)) return { i: prev, prev, why: '', moved: false };
+  const why = `上一期 ${periods[prev].date} ${no(prev) ? '第一步判“基本看不清”' : `大部分被云挡住（${Math.round(obs(prev) * 100)}%）`}`;
+  const cands = [];
+  for (let j = prev - 1; j >= 0 && dayGap(periods[k].date, periods[j].date) <= PAIR.MAX_BACK; j--) cands.push(j);
+  for (const j of cands) if (!no(j) && obs(j) < PAIR.OBS_GOOD) return { i: j, prev, why, moved: true };
+  let best = null;
+  for (const j of cands) if (!no(j) && (best === null || obs(j) < obs(best))) best = j;
+  if (best !== null && obs(best) < obs(prev)) return { i: best, prev, why: `${why}；${PAIR.MAX_BACK} 天内没有更清楚的，用了被挡住最少的一张`, moved: true };
+  return { i: prev, prev, why: `${why}；${PAIR.MAX_BACK} 天内找不到更清楚的`, moved: false, stuck: true };
+}
+const maskCache = {};
+// 云掩膜图（256×256，1 = 云、云影、薄云或缺测）；没有这张图时返回 null
+export function loadMask(url) {
+  if (!url) return Promise.resolve(null);
+  if (!maskCache[url]) maskCache[url] = new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, 256, 256).data, m = new Uint8Array(65536);
+      for (let n = 0; n < 65536; n++) m[n] = d[n * 4] > 127 ? 1 : 0;
+      res(m);
+    };
+    img.onerror = () => res(null);
+    img.src = url;
+  });
+  return maskCache[url];
+}
+// 框里被挡住的比例：云掩膜，加上那一期第一步圈的“看不清”；第一步“基本看不清”算全被挡住
+export function boxObscured(mask, qdata, b) {
+  if (qdata?.clear === 'no') return 1;
+  const c0 = Math.max(0, Math.floor(b.x0)), r0 = Math.max(0, Math.floor(b.y0));
+  const c1 = Math.max(c0 + 1, Math.min(256, Math.ceil(b.x1))), r1 = Math.max(r0 + 1, Math.min(256, Math.ceil(b.y1)));
+  const qb = (qdata?.boxes || []).map(q => [Math.floor(q.x0), Math.floor(q.y0), Math.ceil(q.x1), Math.ceil(q.y1)]);
+  let n = 0, bad = 0;
+  for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) {
+    n++;
+    if ((mask && mask[r * 256 + c]) || qb.some(([x0, y0, x1, y1]) => c >= x0 && c < x1 && r >= y0 && r < y1)) bad++;
+  }
+  return n ? bad / n : 0;
+}
+const FARM_WORDS = ['农田', '收割', '返青', '翻耕', '灌水', '插秧', '稻'];
+const LAND_TAGS = ['veg-', 'veg+', 'bare+', 'bare-', 'road+', 'road-', 'building+', 'building-'];
+// 水的框（水面扩大、缩小，又不是农田、不是陆地类别）：反光影像上水面范围量不准
+export function isWaterBox(b) {
+  const t = b.tags || [];
+  if (t.includes('farm') || FARM_WORDS.some(w => (b.note || '').includes(w))) return false;
+  return t.some(x => x === 'water+' || x === 'water-') && !t.some(x => LAND_TAGS.includes(x));
+}
+// 这一张在框里看得清吗；返回 { ok, frac, glint }
+export async function boxSeen(period, b, latestOf) {
+  if (isWaterBox(b) && (period.glint ?? 99) < PAIR.GLINT) return { ok: false, frac: 0, glint: true };
+  const frac = boxObscured(await loadMask(period.cm), latestOf(period.scene_id)?.quality?.data, b);
+  return { ok: frac < PAIR.OBS_BOX, frac, glint: false };
+}
+// 这个框的前图：从 start（整张前图）开始，框里看得清就用它，否则往前找（最多 120 天）。返回 { i, frac, glint }，找不到 i 为 null
+export async function boxBefore(periods, k, start, b, latestOf) {
+  if (start == null) return { i: null };
+  const s0 = await boxSeen(periods[start], b, latestOf);
+  if (s0.ok) return { i: start, frac: s0.frac, glint: false };
+  for (let j = start - 1; j >= 0 && dayGap(periods[k].date, periods[j].date) <= PAIR.MAX_BACK; j--) {
+    if ((await boxSeen(periods[j], b, latestOf)).ok) return { i: j, frac: s0.frac, glint: s0.glint };
+  }
+  return { i: null, frac: s0.frac, glint: s0.glint };
+}

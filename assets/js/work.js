@@ -3,7 +3,8 @@
 import { Scene } from './viewer.js';
 import { append, onQueueChange, pendingRows, uuid, tableSync } from './api.js';
 import { loadSites, loadPeriods, loadReadings, latestByScene, periodState, progress, fmtDate, fmtTime, stable,
-  stepTwo, stepThree, STEP3_NAME, canStep3, cellRange, sameGeom, encodeCells, decodeCells, countCells } from './store.js';
+  stepTwo, stepThree, STEP3_NAME, canStep3, cellRange, sameGeom, encodeCells, decodeCells, countCells,
+  imageBefore, boxBefore, boxSeen, dayGap } from './store.js';
 import { QUALITY_REASONS, CHANGE_TAGS, QUALITY_LEVELS, OVERALL, QUALITY_NAME, OVERALL_NAME } from './config.js';
 
 const $ = id => document.getElementById(id);
@@ -27,6 +28,9 @@ const reviewSync = tableSync('reviews', { site: `eq.${code}` });
 let editing = false;   // the open period was already finished: saving keeps you on it
 let k = 0, step = 1, q = emptyQ(), c = emptyC(), imgKind = 'tc';
 let pz = null;                  // step 3 working copy of the open period
+// 前图（2026-10-03）：上一期被云挡住过半或第一步“基本看不清”时，左图换成最近一张看得清的（store.js imageBefore）
+let bef = null;                 // { i, prev, why, moved, stuck }
+let leftOverride = null;        // 临时换的左图（看上一期原图、某个框的前图）；换期时清掉
 let brush = 1, brushSize = 1;   // kept from period to period
 let aiShow = true;              // 第三步：AI 预标（prefill/index.json 里列出的期才有；目前只有株洲南）
 const aiMaps = {};
@@ -72,6 +76,11 @@ function toast(msg) {
 }
 const cur = () => periods[k];
 const prevPeriod = () => periods[k - 1] || null;
+const latestOf = sid => latest[sid];
+function computeBefore() { bef = cur().role === 'task' ? imageBefore(periods, k, latestOf) : null; }
+// 这一对的前图（存进记录、决定能不能比）；左图现在显示的那张（可能临时换成上一期原图或某个框的前图）
+const pairBefore = () => (bef && bef.i != null ? periods[bef.i] : prevPeriod());
+const leftPeriod = () => (leftOverride != null ? periods[leftOverride] : pairBefore());
 const draftKey = kind => `rs2_${practice ? 'pdraft' : 'draft'}_${code}_${cur().scene_id}_${kind}`;
 // Only the step being edited keeps a draft, so a finished step never looks "unsaved".
 function saveDraft() {
@@ -130,15 +139,23 @@ onQueueChange(setSaveBadge);
 
 // ---------- images ----------
 function label(p, role) { return `${role} ${fmtDate(p.date)}`; }
+function leftRole(i) {
+  if (i === k - 1) return leftOverride != null && bef?.moved ? '上一期（被挡住的原图）' : '上一期';
+  if (i === bef?.i && leftOverride == null) return '前图（上一期被挡住，换成最近一张看得清的）';
+  return '对照';
+}
 function renderImages() {
   const p = cur();
   v1.setImage(p[imgKind], label(p, '这一期'));
-  const pp = prevPeriod();
-  if (pp) {
-    v2a.setImage(pp[imgKind], label(pp, '上一期'));
-    v2b.setImage(p[imgKind], label(p, `这一期 · 隔 ${p.gap_days} 天`));
-    v3a.setImage(pp[imgKind], label(pp, '上一期'));
+  computeBefore();
+  const lp = leftPeriod();
+  if (lp) {
+    const li = periods.indexOf(lp);
+    v2a.setImage(lp[imgKind], label(lp, leftRole(li)));
+    v2b.setImage(p[imgKind], label(p, `这一期 · 隔 ${dayGap(p.date, lp.date)} 天`));
+    v3a.setImage(lp[imgKind], label(lp, leftRole(li)));
     v3b.setImage(p[imgKind], label(p, '这一期'));
+    if (step === 3 && pz) setLeft3(pz.boxes.find(b => b.id === scene3.paint?.current));
   }
 }
 
@@ -231,7 +248,8 @@ function cleanQ() {
 
 async function saveRow(kind, data) {
   const p = cur();
-  const row = { site: code, scene_id: p.scene_id, prev_scene_id: p.prev, kind, data };
+  // prev_scene_id 记这一对实际比的前图（上一期被挡住时是更早的那张）；第一步只看这一期，仍记上一期
+  const row = { site: code, scene_id: p.scene_id, prev_scene_id: kind === 'quality' ? p.prev : (pairBefore()?.scene_id || p.prev), kind, data };
   let res;
   if (practice) {
     res = { row: { id: uuid(), created_at: new Date().toISOString(), ...row }, queued: false };
@@ -273,12 +291,13 @@ async function onSave1() {
 }
 
 // ---------- step 2 ----------
-function prevQuality() { const pp = prevPeriod(); return pp ? latest[pp.scene_id]?.quality?.data || null : null; }
+function prevQuality() { const pp = pairBefore(); return pp ? latest[pp.scene_id]?.quality?.data || null : null; }
+function leftQuality() { const pp = leftPeriod(); return pp ? latest[pp.scene_id]?.quality?.data || null : null; }
 
 // Step 2 content that matters, in a fixed form, to tell whether a re-save changes anything.
 function normC(d) {
   if (!d || d.status === 'uncomparable') return stable(d || null);
-  const boxes = (d.boxes || []).map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: [...(b.tags || [])].sort(), note: (b.note || '').trim() }));
+  const boxes = (d.boxes || []).map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: [...(b.tags || [])].sort(), note: (b.note || '').trim(), before: b.before || null }));
   const overall = [...new Set([...(d.overall || []).filter(o => o !== 'local'), ...(boxes.length ? ['local'] : [])])].sort();
   return stable({ overall, other: (d.other || '').trim(), boxes });
 }
@@ -287,18 +306,25 @@ function renderPanel2() {
   const pq = prevQuality();
   const prevFull = pq && pq.clear === 'no';
   let note = '';
-  if (!pq) note = '<div class="notice warn">上一期还没判断能不能看清。建议先回到上一期完成第一步。</div>';
-  if (prevFull) note = '<div class="notice warn">上一期基本看不清，这一对没法比较。直接点“保存，进入下一期”即可。</div>';
+  if (!pq) note = `<div class="notice warn">${bef?.moved ? '左边这一期' : '上一期'}还没判断能不能看清。建议先回到那一期完成第一步。</div>`;
+  if (prevFull) note = '<div class="notice warn">上一期基本看不清，往前 120 天也找不到看得清的影像，这一对没法比较。直接点“保存，进入下一期”即可。</div>';
+  if (bef?.moved) {
+    const bp = pairBefore();
+    note = `<div class="notice">${esc(bef.why)}，左边换成了最近一张看得清的 <b>${fmtDate(bp.date)}</b>（和这一期隔 ${dayGap(cur().date, bp.date)} 天）。按左边这张比：看这一期和它比有没有变化。
+      <button class="btn sm ghost" id="leftToggle">${leftOverride === k - 1 ? '回到前图' : '看一眼上一期原图'}</button></div>` + note;
+  } else if (bef?.stuck && !prevFull) note = `<div class="notice warn">${esc(bef.why)}，只能和上一期比，被挡住的地方不画框。</div>` + note;
   const two = stepTwo(latest[cur().scene_id] || {}, reviewsOf());
   if (cur().gap_days === 0) note += '<div class="notice">这两景是同一天拍的，只差约 10 分钟（两颗卫星从不同方向看），地面不会真的变化。只在“不同点”里记整体差异（如颜色、水面发白发亮），一般不用画框。</div>';
   if (two.source === 'leader') note += '<div class="notice">下面是组长修改后的版本。</div>';
   if (!practice && two.verdict?.decision === 'rejected') note += `<div class="notice warn">组长认为这一期标的不是变化${two.verdict.comment ? `：${esc(two.verdict.comment)}` : ''}。</div>`;
   else if (!practice && two.verdict) note += '<div class="notice">组长已经确认了这一步。如果再改动并保存，要等组长重新确认，第三步会暂时关闭。</div>';
   $('pairNote').innerHTML = note;
+  const lt = $('leftToggle');
+  if (lt) lt.onclick = () => { leftOverride = leftOverride === k - 1 ? null : k - 1; renderImages(); renderPanel2(); };
   const blurry = x => x && (x.clear === 'blurry' || (x.clear === 'partial' && x.also_blurry));
   $('blurNote').innerHTML = !prevFull && (blurry(q) || blurry(pq))
     ? `<div class="notice warn">${blurry(q) && blurry(pq) ? '这两期' : blurry(q) ? '这一期' : '上一期'}整体偏模糊，只记你能确定的不同；拿不准的选“有差别，但说不清是什么”。</div>` : '';
-  scene2.setLayer('prevQuality', clone((pq && pq.boxes) || []), { style: 'quality', viewer: 0, labels: false });
+  scene2.setLayer('prevQuality', clone((leftQuality() && leftQuality().boxes) || []), { style: 'quality', viewer: 0, labels: false });
   scene2.setLayer('curQuality', clone(q.boxes || []), { style: 'quality', viewer: 1, labels: false });
   scene2.setLayer('change', c.boxes, { style: 'change', editable: !prevFull });
   document.querySelectorAll('[data-overall]').forEach(b => { b.classList.toggle('on', c.overall.includes(b.dataset.overall)); b.disabled = prevFull; });
@@ -337,7 +363,33 @@ function renderCBoxList() {
     });
     item.querySelector('input').addEventListener('input', e => { b.note = e.target.value; saveDraft(); });
     list.appendChild(item);
+    if (pairBefore()) annotateBox(item, b);
   }
+}
+
+// 框在这一对的前图里被挡住两成以上（云、云影、第一步圈的看不清），或水的框遇上反光：提示，并可改和最近一张这里看得清的影像比（记在框上 before）
+async function annotateBox(item, b) {
+  const host = document.createElement('div');
+  host.className = 'tiny boxbefore';
+  item.appendChild(host);
+  const kk = k;
+  if (b.before) {
+    const j = periods.findIndex(x => x.scene_id === b.before);
+    if (j < 0) return;
+    host.innerHTML = `这个框和 <b>${fmtDate(periods[j].date)}</b> 比（前图在这里看不清）。<button class="btn sm ghost" data-b="see">左图换成这一张</button><button class="btn sm ghost" data-b="clr">改回和前图比</button>`;
+    host.querySelector('[data-b="see"]').onclick = e => { e.stopPropagation(); leftOverride = j; renderImages(); renderPanel2(); };
+    host.querySelector('[data-b="clr"]').onclick = e => { e.stopPropagation(); delete b.before; leftOverride = null; renderImages(); saveDraft(); renderPanel2(); };
+    return;
+  }
+  const start = bef?.i ?? k - 1;
+  const s0 = await boxSeen(periods[start], b, latestOf);
+  if (kk !== k || s0.ok) return;
+  const r = await boxBefore(periods, k, start, b, latestOf);
+  if (kk !== k) return;
+  const why = s0.glint ? '前图是反光影像，水面范围量不准' : `这个框在前图里被挡住 ${Math.round(s0.frac * 100)}%`;
+  if (r.i == null) { host.innerHTML = `<span class="warnt">${why}，往前 120 天也没有这里看得清的影像：这里先不画框，或选“有差别，但说不清是什么”。</span>`; return; }
+  host.innerHTML = `<span class="warnt">${why}。</span><button class="btn sm" data-b="use">改和 ${fmtDate(periods[r.i].date)} 比（隔 ${dayGap(cur().date, periods[r.i].date)} 天）</button>`;
+  host.querySelector('[data-b="use"]').onclick = e => { e.stopPropagation(); b.before = periods[r.i].scene_id; leftOverride = r.i; renderImages(); saveDraft(); renderPanel2(); };
 }
 
 function validateC() {
@@ -363,9 +415,10 @@ async function onSave2() {
     let data;
     if (pq && pq.clear === 'no') data = { status: 'uncomparable', reason: 'previous_unclear' };
     else {
-      const boxes = c.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags, note: (b.note || '').trim() }));
+      const boxes = c.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags, note: (b.note || '').trim(), ...(b.before ? { before: b.before } : {}) }));
       const overall = [...new Set([...c.overall, ...(boxes.length ? ['local'] : [])])];
       data = { status: boxes.length ? 'changes' : 'none', overall, other: c.other.trim(), boxes };
+      if (bef?.moved) data.before = { scene_id: pairBefore().scene_id, date: pairBefore().date, why: bef.why };
     }
     // an unchanged re-save adds no version, so the leader's confirmation (and step 3) stays valid
     const now = stepTwo(latest[cur().scene_id] || {}, reviewsOf()).data;
@@ -395,7 +448,7 @@ function buildPaint() {
   const src = readDraft('precise')?.boxes || s3.precise?.data?.boxes || [];
   const boxes = s3.boxes.map(b => {
     const r = cellRange(b);
-    const bx = { id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags || [], note: b.note || '', ...r, cells: new Uint8Array(r.w * r.h), moved: false };
+    const bx = { id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags || [], note: b.note || '', before: b.before || null, ...r, cells: new Uint8Array(r.w * r.h), moved: false };
     const m = src.find(x => x.id === b.id);
     if (!m) return bx;
     const old = decodeCells(m.rle, m.w * m.h);
@@ -415,9 +468,10 @@ function buildPaint() {
   const first = boxes.find(b => !painted(b)) || boxes[0];
   scene3.setPaint({ boxes, current: first ? first.id : null, brush, size: brushSize, editable: true, show: true, grid: true });
   scene3.setLayer('targets', boxes, { style: 'target' });
-  scene3.setLayer('prevQ', clone(prevQuality()?.boxes || []), { style: 'qline', viewer: 0, labels: false });
+  scene3.setLayer('prevQ', clone(leftQuality()?.boxes || []), { style: 'qline', viewer: 0, labels: false });
   scene3.setLayer('curQ', clone(q.boxes || []), { style: 'qline', viewer: 1, labels: false });
   if (first) requestAnimationFrame(() => scene3.focusBox(first, 1.6));
+  setLeft3(first);
   scene3.setAiMap(null);
   $('aiBox3').hidden = true; $('toggleAi').hidden = true; $('wandBtn').hidden = true;
   const sid = p.scene_id;
@@ -497,7 +551,22 @@ function pickBox(id, focus) {
   scene3.paintChanged();
   const bx = pz.boxes.find(b => b.id === id);
   if (focus && bx) scene3.focusBox(bx, 1.6);
+  setLeft3(bx);
   renderPBoxList();
+}
+
+// 第三步：涂哪个框，左图就是那个框的前图（第二步记的 before；没记的，前图在框里看不清时自动往前找）
+async function setLeft3(bx) {
+  if (!bx) return;
+  const kk = k;
+  let j = bx.before ? periods.findIndex(x => x.scene_id === bx.before) : -1;
+  const start = bef?.i ?? k - 1;
+  if (j < 0) { const r = await boxBefore(periods, k, start, bx, latestOf); j = r.i ?? start; }
+  if (kk !== k || j < 0) return;
+  const bp = periods[j];
+  v3a.setImage(bp[imgKind], label(bp, j === start ? leftRole(j) : `框 ${bx.id} 的前图（整张前图在这里看不清）`));
+  scene3.setLayer('prevQ', clone(latest[bp.scene_id]?.quality?.data?.boxes || []), { style: 'qline', viewer: 0, labels: false });
+  scene3.render();
 }
 
 function fillBox(bx, v) {
@@ -555,6 +624,7 @@ function goTo(n, want = 0) {
     return;
   }
   k = Math.max(0, Math.min(periods.length - 1, n));
+  leftOverride = null;
   history.replaceState(null, '', `?site=${code}${practice ? '&practice=1' : ''}#${k}`);
   scenes.forEach(s => s.select(null));
   pz = null;

@@ -4,7 +4,8 @@
 // AI 数据（ai/ai_<测点>.json、ai/changemap/<测点>/<日期>.png）只放在本机，不上传网站；没有 AI 数据时本页仍可当组长台用。
 import { Scene } from './viewer.js';
 import { append, tableSync, uuid } from './api.js';
-import { loadSites, loadPeriods, latestByScene, fmtDate, fmtTime, stepThree, stepTwo, decodeCells, sameGeom, cellRange, isAfter } from './store.js';
+import { loadSites, loadPeriods, latestByScene, fmtDate, fmtTime, stepThree, stepTwo, decodeCells, sameGeom, cellRange, isAfter,
+  imageBefore, boxBefore, boxSeen, dayGap } from './store.js';
 import { SITE_ORDER, CHANGE_TAGS, QUALITY_NAME, OVERALL_NAME, OVERALL } from './config.js';
 
 const $ = id => document.getElementById(id);
@@ -30,6 +31,7 @@ let sites, periods = {}, ai = {}, rows = [], reviews = [], latest = {};
 let site = 'ZZ', cur = null, items = [], view = 'mine', imgKind = 'tc', showMap = true, showPaint = true;
 let mine = null, prop = null, curS3 = null, blink = false;
 let refDate = null, curPrevQ = [];   // 左图临时换成的“最近一张清楚影像”（10-01 夜分歧复核）
+let curBef = null;                    // 这一对的前图（2026-10-03）：上一期被挡住时自动换成最近一张看得清的（store.js imageBefore）
 const latestFb = (code, sid) => reviewsOf(code, sid).filter(isFb).sort((a, b) => (isAfter(a, b) ? 1 : -1)).pop() || null;
 let mode = 'demo';
 try { mode = localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo'; site = localStorage.getItem(SITE_KEY) || 'ZZ'; } catch { /* storage blocked */ }
@@ -305,7 +307,8 @@ function proposal(code, p, sd) {
     keep.push(nb);
   }
   let next = sboxes.reduce((m, b) => Math.max(m, b.id || 0), 0) + 1;
-  const adds = (a.misses || []).map(m => ({ id: next++, x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1, tags: [...(m.suggest_tags || [])], note: `AI 提醒：${m.type}`, _miss: m.id }));
+  const adds = (a.misses || []).map(m => ({ id: next++, x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1, tags: [...(m.suggest_tags || [])], note: `AI 提醒：${m.type}`, _miss: m.id,
+    ...(m.before ? { before: m.before } : {}) }));
   // 置信度低于 CONF_MIN 的提醒照样显示，但不进“采用 AI 建议”（与整体建议的算法一致），看图后可以单独点“加入我的决定”
   const strong = new Set((a.misses || []).filter(m => (m.conf_p == null || m.conf_p >= CONF_MIN) && !m.no_adopt).map(m => m.id));
   // 组长已经加过的提醒（框还在，或放回复核建议删掉）不再加一次（2026-04-26：按过 A 之后再按 A，同一条提醒被加了两次）
@@ -319,14 +322,16 @@ function proposal(code, p, sd) {
   return { data, del, adds, decision: a.suggest?.decision, comment: a.suggest?.comment || '' };
 }
 function packMine() {
-  const boxes = mine.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags, note: b.note || '' }));
+  const boxes = mine.boxes.map(b => ({ id: b.id, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, tags: b.tags, note: b.note || '', ...(b.before ? { before: b.before } : {}) }));
   const rest = (mine.overall || []).filter(o => o !== 'none' && o !== 'local');
-  return { status: boxes.length ? 'changes' : 'none', overall: boxes.length ? [...rest, 'local'] : rest.length ? rest : ['none'], other: mine.other || '', boxes };
+  const out = { status: boxes.length ? 'changes' : 'none', overall: boxes.length ? [...rest, 'local'] : rest.length ? rest : ['none'], other: mine.other || '', boxes };
+  if (curBef?.moved && cur) { const bp = periods[cur.code][curBef.i]; out.before = { scene_id: bp.scene_id, date: bp.date, why: curBef.why }; }
+  return out;
 }
 const sameData = (a, b) => JSON.stringify(normD(a)) === JSON.stringify(normD(b));
 function normD(d) {
   if (!d) return null;
-  return { s: d.status, o: [...(d.overall || [])].sort(), b: (d.boxes || []).map(b => [b.id, +b.x0.toFixed(1), +b.y0.toFixed(1), +b.x1.toFixed(1), +b.y1.toFixed(1), [...(b.tags || [])].sort(), b.note || '']) };
+  return { s: d.status, o: [...(d.overall || [])].sort(), b: (d.boxes || []).map(b => [b.id, +b.x0.toFixed(1), +b.y0.toFixed(1), +b.x1.toFixed(1), +b.y1.toFixed(1), [...(b.tags || [])].sort(), b.note || '', b.before || '']) };
 }
 
 // ---------------------------------------------------------------- 打开一期
@@ -358,7 +363,13 @@ async function open(it, keepWork = false) {
   { const at = items.findIndex(x => x.code === it.code && x.i === it.i); $('navPos').textContent = at >= 0 ? `队列第 ${at + 1} / ${items.length} 期` : '（不在当前队列里）'; }
   renderList(true);
   $('pTitle').textContent = `${sites[code].name} 第 ${i} 期 · ${fmtDate(p.date)}`;
-  $('pSub').textContent = `上一期 ${prev.date}（${prev.orbit}）→ 这一期 ${p.date}（${p.orbit}），相隔 ${p.gap_days} 天`;
+  curBef = imageBefore(per, i, sid => latest[code][sid]);
+  const bp = curBef.i != null ? per[curBef.i] : prev;
+  $('pSub').innerHTML = curBef.moved
+    ? `<b>前图 ${bp.date}（${bp.orbit}）</b>→ 这一期 ${p.date}（${p.orbit}），相隔 ${dayGap(p.date, bp.date)} 天 · ${esc(curBef.why)}，左图已换成最近一张看得清的 <button class="btn sm ghost" id="befBtn">看一眼上一期原图</button>`
+    : `上一期 ${prev.date}（${prev.orbit}）→ 这一期 ${p.date}（${p.orbit}），相隔 ${p.gap_days} 天${curBef.stuck ? ` · <span style="color:#b45309">${esc(curBef.why)}</span>` : ''}`;
+  const befBtn = $('befBtn');
+  if (befBtn) befBtn.onclick = () => { const on = refDate === bp.date; setRef(on ? null : bp.date); befBtn.textContent = on ? '回到前图' : '看一眼上一期原图'; };
   const cd = a?.cond;
   const conds = [];
   if (cd) {
@@ -386,7 +397,7 @@ async function open(it, keepWork = false) {
   const agItems = a?.again?.items || [];
   const agPend = againPending(code, p);
   const SEC = { 二: '10-01 夜分歧复核 · AI 可能对，再看一眼', 三: '10-01 夜分歧复核 · 薄云期判法要统一', 四: '10-01 夜分歧复核 · 要修的记录',
-    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言' };
+    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言', 前图规则: '10-03 前图规则' };
   const lastDec = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision))
     .sort((x, y) => (isAfter(x, y) ? 1 : -1)).pop();
   const doneIt = x => !!lastDec && !!x.at && !!(lastDec._fresh || lastDec._pending || new Date(lastDec.created_at) >= new Date(x.at));
@@ -419,6 +430,7 @@ async function open(it, keepWork = false) {
   const pb = (s3.precise?.data?.boxes || []).map(m => ({ id: m.id, c0: m.c0, r0: m.r0, w: m.w, h: m.h, cells: decodeCells(m.rle, m.w * m.h), ai: m.ai || null }));
   scene.setPaint(pb.length ? { boxes: pb, current: null, brush: 1, size: 1, editable: false, show: showPaint, grid: false } : null);
   setLayers();
+  if (curBef?.moved) setRef(per[curBef.i].date);
   renderBoxes();
   renderMisses();
   renderOverall();
@@ -513,7 +525,31 @@ function renderBoxes() {
       if (m) scene.select(b.id);
     });
     list.appendChild(item);
+    if (m && view === 'mine') annotateBoxR(item, m);
   }
+}
+async function annotateBoxR(item, m) {
+  const it = cur, per = periods[it.code], latestOf = sid => latest[it.code][sid];
+  const host = document.createElement('div');
+  host.className = 'tiny boxbefore';
+  item.appendChild(host);
+  if (m.before) {
+    const j = per.findIndex(x => x.scene_id === m.before);
+    if (j < 0) return;
+    host.innerHTML = `这个框和 <b>${per[j].date}</b> 比（前图在这里看不清）。<button class="btn sm ghost" data-b="see">左图换成这一张</button><button class="btn sm ghost" data-b="clr">改回和前图比</button>`;
+    host.querySelector('[data-b="see"]').onclick = e => { e.stopPropagation(); setRef(per[j].date); };
+    host.querySelector('[data-b="clr"]').onclick = e => { e.stopPropagation(); delete m.before; afterEdit(); };
+    return;
+  }
+  const start = curBef?.i ?? it.i - 1;
+  const s0 = await boxSeen(per[start], m, latestOf);
+  if (cur !== it || s0.ok) return;
+  const r = await boxBefore(per, it.i, start, m, latestOf);
+  if (cur !== it) return;
+  const why = s0.glint ? '前图是反光影像，水面范围量不准' : `这个框在前图里被挡住 ${Math.round(s0.frac * 100)}%`;
+  if (r.i == null) { host.innerHTML = `<span class="warnt">${why}，往前 120 天也没有这里看得清的影像。</span>`; return; }
+  host.innerHTML = `<span class="warnt">${why}。</span><button class="btn sm" data-b="use">改和 ${per[r.i].date} 比（隔 ${dayGap(it.p.date, per[r.i].date)} 天）</button>`;
+  host.querySelector('[data-b="use"]').onclick = e => { e.stopPropagation(); m.before = per[r.i].scene_id; setRef(per[r.i].date); afterEdit(); };
 }
 const CONF_MIN = 0.5;
 function missLabel(a, b) {
@@ -796,8 +832,9 @@ function setRef(d) {
   const rp = d ? per.find(x => x.date === d) : null;
   refDate = rp ? d : null;
   if (rp) {
-    va.setImage(rp[imgKind], `对照 ${rp.date}（最近一张清楚影像，不是上一期）`);
-    scene.setLayer('prevQ', [], { style: 'quality', viewer: 0, labels: false });   // 上一期的“看不清”框不属于这张影像
+    const auto = curBef?.moved && per[curBef.i]?.date === d;
+    va.setImage(rp[imgKind], auto ? `前图 ${rp.date}（上一期被挡住，换成最近一张看得清的）` : `对照 ${rp.date}（不是上一期）`);
+    scene.setLayer('prevQ', clone(latest[cur.code][rp.scene_id]?.quality?.data?.boxes || []), { style: 'quality', viewer: 0, labels: false });   // 这张影像自己的“看不清”框
   } else {
     va.setImage(prev[imgKind], `上一期 ${prev.date}`);
     scene.setLayer('prevQ', clone(curPrevQ), { style: 'quality', viewer: 0, labels: false });
@@ -812,8 +849,8 @@ function setRef(d) {
 function setBlink(on) {
   if (!cur) return;
   blink = on;
-  const prev = periods[cur.code][cur.i - 1];
-  if (on) vb.setImage(prev[imgKind], `上一期 ${prev.date}（右图正在看上一期）`);
+  const prev = refDate ? periods[cur.code].find(x => x.date === refDate) : periods[cur.code][cur.i - 1];
+  if (on) vb.setImage(prev[imgKind], `${prev.date}（右图正在看左图那一期）`);
   else vb.setImage(cur.p[imgKind], `这一期 ${cur.p.date}`);
   $('blinkBtn').classList.toggle('on', on);
   $('blinkBtn').textContent = on ? '右图回到这一期' : '右图看上一期';

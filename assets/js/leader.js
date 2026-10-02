@@ -1,7 +1,7 @@
 // Leader desk: review queue (confirm / reject / modify step 2, check step 3), answer questions, export records.
 import { Scene } from './viewer.js';
 import { append, tableSync } from './api.js';
-import { loadSites, loadPeriods, latestByScene, fmtDate, fmtTime, stepThree, decodeCells, sameGeom } from './store.js';
+import { loadSites, loadPeriods, latestByScene, fmtDate, fmtTime, stepThree, decodeCells, sameGeom, imageBefore, dayGap } from './store.js';
 import { SITE_ORDER, CHANGE_TAGS, QUALITY_NAME, OVERALL_NAME } from './config.js';
 
 const $ = id => document.getElementById(id);
@@ -162,9 +162,12 @@ function openReview(keepWork = false) {
   const s3 = curS3 = stepThree(p, l, rvs);
   const two = s3.two;
   $('rvTitle').textContent = `${sites[code].name} 第 ${i} 期 · ${fmtDate(p.date)}`;
-  $('rvSub').textContent = prev ? `上一期 ${prev.date}，相隔 ${p.gap_days} 天` : '第 0 期，只判断能否看清';
+  const bef = prev ? imageBefore(per, i, sid => latest[code][sid]) : null;
+  const bp = bef && bef.i != null ? per[bef.i] : prev;
+  $('rvSub').textContent = !prev ? '第 0 期，只判断能否看清'
+    : bef.moved ? `前图 ${bp.date}（${bef.why}，换成最近一张看得清的），相隔 ${dayGap(p.date, bp.date)} 天` : `上一期 ${prev.date}，相隔 ${p.gap_days} 天`;
   $('rvOpen').href = `work.html?site=${code}#${i}`;
-  va.setImage((prev || p)[imgKind], prev ? `上一期 ${prev.date}` : `这一期 ${p.date}`);
+  va.setImage((bp || p)[imgKind], bp ? (bef.moved ? `前图 ${bp.date}（上一期被挡住）` : `上一期 ${bp.date}`) : `这一期 ${p.date}`);
   vb.setImage(p[imgKind], `这一期 ${p.date}`);
   scene.aoi = sites[code].aoi ? sites[code].aoi.ring : null;
   scene.rail = sites[code].railway.lines;
@@ -175,7 +178,7 @@ function openReview(keepWork = false) {
     $('rvComment').value = '';
     $('rvErr').textContent = '';
   }
-  scene.setLayer('prevQ', clone(pl.quality?.data?.boxes || []), { style: 'quality', viewer: 0, labels: false });
+  scene.setLayer('prevQ', clone((bp ? latest[code][bp.scene_id]?.quality?.data?.boxes : pl.quality?.data?.boxes) || []), { style: 'quality', viewer: 0, labels: false });
   scene.setLayer('curQ', clone(l.quality?.data?.boxes || []), { style: 'quality', viewer: 1, labels: false });
   scene.setLayer('change', work.boxes, { style: 'change', editable: true });
   // the student's painted cells, read-only
@@ -332,8 +335,17 @@ function effective(code, p) {
 }
 const paintedBox = (s3, b) => (s3.precise?.data?.boxes || []).find(m => m.id === b.id && sameGeom(m, b)) || null;
 
+// 这一对的前图（2026-10-03）：上一期被挡住时是最近一张看得清的；框上记了 before 的，框用自己的前图
+function pairBeforeOf(code, i) {
+  const per = periods[code];
+  if (i < 1) return null;
+  const bef = imageBefore(per, i, sid => latest[code][sid]);
+  return { p: per[bef.i ?? i - 1], why: bef.why, moved: bef.moved };
+}
+const boxBeforeDate = (code, b, pb) => (b.before ? periods[code].find(x => x.scene_id === b.before)?.date : null) || pb?.p?.date || '';
+
 function exportPeriods() {
-  const out = [['测点', '期序', '日期', '卫星', '轨道', '距上一期天数', '上一期日期', '看得清程度', '看不清原因', '看不清其他说明', '看不清框数', '其余也模糊',
+  const out = [['测点', '期序', '日期', '卫星', '轨道', '距上一期天数', '上一期日期', '前图日期', '前图说明', '看得清程度', '看不清原因', '看不清其他说明', '看不清框数', '其余也模糊',
     '对比结果', '不同点', '变化框数', '变化类别汇总', '其他说明', '结果来源', '复核结论', '复核批注', '第三步状态', '第三步变化格数', '第三步拿不准格数']];
   for (const code of SITE_ORDER) periods[code].forEach((p, i) => {
     const l = latest[code][p.scene_id] || {};
@@ -342,7 +354,8 @@ function exportPeriods() {
     const tagCount = {};
     for (const b of c?.boxes || []) for (const t of b.tags) tagCount[TAG[t] || t] = (tagCount[TAG[t] || t] || 0) + 1;
     const cells = s3.boxes.map(b => paintedBox(s3, b)).filter(Boolean);
-    out.push([sites[code].name, i, p.date, p.satellite, p.orbit, p.gap_days ?? '', periods[code][i - 1]?.date || '',
+    const pb = pairBeforeOf(code, i);
+    out.push([sites[code].name, i, p.date, p.satellite, p.orbit, p.gap_days ?? '', periods[code][i - 1]?.date || '', pb?.p?.date || '', pb?.moved ? pb.why : '',
       q ? (QUALITY_NAME[q.clear] || q.clear) : '', (q?.reasons || []).join('、'), q?.other || '', q?.boxes?.length || '', q?.also_blurry ? '是' : '',
       c ? ({ none: '没有局部变化', changes: '有局部变化', uncomparable: '没法比较' })[c.status] : '', (c?.overall || []).map(o => OVERALL_NAME[o] || o).join('、'),
       c?.boxes?.length ?? '', Object.entries(tagCount).map(([t, n]) => `${t}×${n}`).join('；'), c?.other || '', c ? source : '', rv ? decName(rv) : '', rv?.comment || '',
@@ -352,15 +365,16 @@ function exportPeriods() {
 }
 
 function exportBoxes() {
-  const out = [['测点', '期序', '日期', '上一期日期', '框号', '像元x0', '像元y0', '像元x1', '像元y1', 'UTM左上X', 'UTM左上Y', 'UTM右下X', 'UTM右下Y', '类别', '说明', '结果来源', '复核结论', '复核批注',
+  const out = [['测点', '期序', '日期', '上一期日期', '这个框的前图', '框号', '像元x0', '像元y0', '像元x1', '像元y1', 'UTM左上X', 'UTM左上Y', 'UTM右下X', 'UTM右下Y', '类别', '说明', '结果来源', '复核结论', '复核批注',
     '第三步状态', '第三步变化格数', '第三步拿不准格数']];
   for (const code of SITE_ORDER) {
     const [ox, oy] = sites[code].grid_origin;
     periods[code].forEach((p, i) => {
       const { data: c, source, rv, s3 } = effective(code, p);
+      const pb = pairBeforeOf(code, i);
       for (const b of c?.status === 'changes' ? c.boxes : []) {
         const m = paintedBox(s3, b);
-        out.push([sites[code].name, i, p.date, periods[code][i - 1]?.date || '', b.id, b.x0, b.y0, b.x1, b.y1,
+        out.push([sites[code].name, i, p.date, periods[code][i - 1]?.date || '', boxBeforeDate(code, b, pb), b.id, b.x0, b.y0, b.x1, b.y1,
           (ox + b.x0 * 10).toFixed(1), (oy - b.y0 * 10).toFixed(1), (ox + b.x1 * 10).toFixed(1), (oy - b.y1 * 10).toFixed(1),
           b.tags.map(t => TAG[t] || t).join('、'), b.note || '', source, rv ? decName(rv) : '', rv?.comment || '',
           s3.state ? LEAD3[s3.state] : '', m ? m.n1 : '', m ? m.n2 : '']);
@@ -379,17 +393,22 @@ function exportLabels() {
     const l = latest[code][p.scene_id] || {};
     const pl = latest[code][prev.scene_id] || {};
     const { s3 } = effective(code, p);
+    const pb = pairBeforeOf(code, i);
+    const bl = latest[code][pb.p.scene_id] || {};
     pairs.push({
       site: code, index: i, scene_id: p.scene_id, date: p.date, prev_scene_id: prev.scene_id, prev_date: prev.date, gap_days: p.gap_days,
+      before_scene_id: pb.p.scene_id, before_date: pb.p.date, before_reason: pb.moved ? pb.why : '', before_quality: bl.quality?.data || null,
       quality: l.quality?.data || null, prev_quality: pl.quality?.data || null,
       step2: s3.two.data, step2_source: s3.two.source, step2_verdict: s3.two.verdict?.decision || null,
-      step3_state: s3.state, step3_boxes: s3.state ? s3.boxes.map(b => ({ ...b, cells: paintedBox(s3, b) })) : [], step3_check: s3.check?.decision || null,
+      step3_state: s3.state, step3_boxes: s3.state ? s3.boxes.map(b => ({ ...b, before_date: boxBeforeDate(code, b, pb), cells: paintedBox(s3, b) })) : [], step3_check: s3.check?.decision || null,
     });
   });
   const meta = Object.fromEntries(SITE_ORDER.map(c => [c, { name: sites[c].name, grid_origin: sites[c].grid_origin, aoi_ring_px: sites[c].aoi ? sites[c].aoi.ring : null }]));
   download(`正式标注数据_${stamp()}.json`, JSON.stringify({
     exported_at: new Date().toISOString(), crs: 'EPSG:32649', pixel_m: 10, size: 256,
     cells: '每个框的 cells.rle：按行游程编码，"值+个数" 用点分隔；0 没变，1 变化，2 拿不准。c0/r0 是框左上格子的列/行，w/h 是格子数',
+    before: '每一对的前图 before_*：上一期在观察范围里被云挡住过半或第一步“基本看不清”时，换成最近一张被挡住少于两成的（120 天内）；框上有 before 的，这个框和它比。'
+      + '框在前图里被挡住两成以上（含第一步圈的看不清）而没有记 before 的，离线导出脚本 pair_consistency_20261002/脚本/export_pairs.py 会自动配前图并列清单',
     sites: meta, pairs,
   }, null, 1), 'application/json');
 }
