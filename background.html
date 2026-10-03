@@ -87,9 +87,9 @@ for (const c of SITE_ORDER) {
   box.insertAdjacentHTML('beforeend', `<div class="card" style="overflow:hidden">
     <div style="position:relative;aspect-ratio:1;background:#14171c"><img src="${ref.tc}" style="width:100%;height:100%;image-rendering:pixelated;display:block">${aoi}</div>
     <div style="padding:12px 14px"><b style="font-size:16px;display:flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block"></i>${s.name}</b>
-    <p class="small muted" style="margin:6px 0 0">${SITE_INFO[c].concern}</p><p class="tiny" style="margin:6px 0 0">${s.aoi ? '看铁路右侧靠山的一面（黄线内）' : '看整幅影像'}</p></div></div>`);
+    <p class="small muted" style="margin:6px 0 0">${SITE_INFO[c].concern}</p><p class="tiny" style="margin:6px 0 0">${s.aoi ? '看河右侧：铁路这一侧从河岸线到山上（黄线内）' : '看整幅影像'}</p></div></div>`);
   totalAll += per.length; totalTasks += s.n_tasks;
-  rows += `<tr><td><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block;margin-right:6px"></i>${s.name}</td><td>${per.length} 期</td><td><b>${s.n_tasks} 期</b></td><td>${s.aoi ? '铁路右侧山体' : '整幅'}</td></tr>`;
+  rows += `<tr><td><i style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block;margin-right:6px"></i>${s.name}</td><td>${per.length} 期</td><td><b>${s.n_tasks} 期</b></td><td>${s.aoi ? '河右侧（河岸到山上）' : '整幅'}</td></tr>`;
 }
 document.getElementById('countTable').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:15px">
   <thead><tr style="text-align:left;color:var(--sub);font-size:13px"><th style="padding:8px 6px;border-bottom:1px solid var(--line)">测点</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">期数（2021.7—2026.7）</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">要对比的期数</th><th style="padding:8px 6px;border-bottom:1px solid var(--line)">观察范围</th></tr></thead>

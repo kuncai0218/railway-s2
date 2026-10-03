@@ -48,7 +48,7 @@ async function main() {
             <span><b>${pr.finished}</b> / ${pr.total} 期已完成</span>
             <span>记录变化 ${pr.changes} 期</span>
             ${todo3 ? `<span class="todo3">第三步待做 ${todo3} 期</span>` : ''}
-            <span>${s.aoi ? '看铁路右侧山体（黄线内）' : '看整幅影像'}</span>
+            <span>${s.aoi ? '看河右侧：从河岸线到山上（黄线内）' : '看整幅影像'}</span>
           </div>
         </div>
         <div class="progress"><i style="width:${pct}%;background:${s.color}"></i></div>

@@ -52,7 +52,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2021-08-22_S2A_R032_cm.png",
-  "obs": 0.038,
+  "obs": 0.089,
   "glint": 33.9,
   "hazy": false
  },
@@ -166,7 +166,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2021-09-24_S2A_R075_cm.png",
-  "obs": 0.264,
+  "obs": 0.228,
   "glint": 25.7,
   "hazy": false
  },
@@ -394,7 +394,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2022-06-08_S2A_R032_cm.png",
-  "obs": 0.464,
+  "obs": 0.455,
   "glint": 27.8,
   "hazy": true
  },
@@ -451,7 +451,7 @@
   "offset_corrected": true,
   "role": "task",
   "cm": "img/ZZ/2022-07-13_S2B_R032_cm.png",
-  "obs": 0.064,
+  "obs": 0.055,
   "glint": 29.6,
   "hazy": true
  },
@@ -508,7 +508,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2022-07-31_S2A_R075_cm.png",
-  "obs": 0.215,
+  "obs": 0.268,
   "glint": 10.0,
   "hazy": true
  },
@@ -603,7 +603,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2022-08-15_S2B_R075_cm.png",
-  "obs": 0.007,
+  "obs": 0.006,
   "glint": 13.0,
   "hazy": false
  },
@@ -641,7 +641,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2022-08-25_S2B_R075_cm.png",
-  "obs": 0.114,
+  "obs": 0.102,
   "glint": 16.7,
   "hazy": true
  },
@@ -945,7 +945,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2022-10-31_S2B_R032_cm.png",
-  "obs": 0.32,
+  "obs": 0.312,
   "glint": 50.3,
   "hazy": true
  },
@@ -1002,7 +1002,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2022-12-10_S2B_R032_cm.png",
-  "obs": 0.033,
+  "obs": 0.028,
   "glint": 59.0,
   "hazy": true
  },
@@ -1059,7 +1059,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-01-04_S2A_R032_cm.png",
-  "obs": 0.974,
+  "obs": 0.958,
   "glint": 60.2,
   "hazy": false
  },
@@ -1097,7 +1097,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-01-24_S2A_R032_cm.png",
-  "obs": 0.621,
+  "obs": 0.533,
   "glint": 58.3,
   "hazy": false
  },
@@ -1135,7 +1135,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-02-21_S2B_R075_cm.png",
-  "obs": 0.373,
+  "obs": 0.32,
   "glint": 36.9,
   "hazy": true
  },
@@ -1325,7 +1325,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-08-05_S2A_R075_cm.png",
-  "obs": 0.03,
+  "obs": 0.026,
   "glint": 10.8,
   "hazy": false
  },
@@ -1363,7 +1363,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-08-12_S2A_R032_cm.png",
-  "obs": 0.032,
+  "obs": 0.027,
   "glint": 32.5,
   "hazy": false
  },
@@ -1401,7 +1401,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-08-22_S2A_R032_cm.png",
-  "obs": 0.017,
+  "obs": 0.056,
   "glint": 33.8,
   "hazy": false
  },
@@ -1420,7 +1420,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-08-30_S2B_R075_cm.png",
-  "obs": 0.508,
+  "obs": 0.509,
   "glint": 17.0,
   "hazy": true
  },
@@ -1458,7 +1458,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-09-29_S2B_R075_cm.png",
-  "obs": 0.376,
+  "obs": 0.322,
   "glint": 27.5,
   "hazy": true
  },
@@ -1629,7 +1629,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2023-12-28_S2B_R075_cm.png",
-  "obs": 0.786,
+  "obs": 0.736,
   "glint": 48.6,
   "hazy": true
  },
@@ -1648,7 +1648,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-01-12_S2A_R075_cm.png",
-  "obs": 0.189,
+  "obs": 0.162,
   "glint": 47.3,
   "hazy": false
  },
@@ -1686,7 +1686,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-03-19_S2A_R032_cm.png",
-  "obs": 0.405,
+  "obs": 0.353,
   "glint": 42.8,
   "hazy": false
  },
@@ -1705,7 +1705,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-03-22_S2A_R075_cm.png",
-  "obs": 0.041,
+  "obs": 0.035,
   "glint": 25.3,
   "hazy": true
  },
@@ -1724,7 +1724,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-04-08_S2A_R032_cm.png",
-  "obs": 0.985,
+  "obs": 0.96,
   "glint": 36.4,
   "hazy": false
  },
@@ -1743,7 +1743,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-04-26_S2B_R075_cm.png",
-  "obs": 0.596,
+  "obs": 0.511,
   "glint": 12.6,
   "hazy": true
  },
@@ -1762,7 +1762,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-05-23_S2B_R032_cm.png",
-  "obs": 0.095,
+  "obs": 0.081,
   "glint": 28.2,
   "hazy": true
  },
@@ -1895,7 +1895,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-08-31_S2B_R032_cm.png",
-  "obs": 0.075,
+  "obs": 0.065,
   "glint": 35.4,
   "hazy": true
  },
@@ -2104,7 +2104,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2024-12-04_S2A_R032_cm.png",
-  "obs": 1.0,
+  "obs": 0.998,
   "glint": 58.1,
   "hazy": false
  },
@@ -2180,7 +2180,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-01-03_S2A_R032_cm.png",
-  "obs": 0.888,
+  "obs": 0.776,
   "glint": 60.2,
   "hazy": false
  },
@@ -2199,7 +2199,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-01-06_S2A_R075_cm.png",
-  "obs": 0.497,
+  "obs": 0.427,
   "glint": 48.0,
   "hazy": true
  },
@@ -2275,7 +2275,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-01-21_S2B_R075_cm.png",
-  "obs": 0.038,
+  "obs": 0.033,
   "glint": 45.7,
   "hazy": true
  },
@@ -2465,7 +2465,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-05-01_S2B_R075_cm.png",
-  "obs": 0.088,
+  "obs": 0.076,
   "glint": 11.1,
   "hazy": false
  },
@@ -2636,7 +2636,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-08-09_S2B_R075_cm.png",
-  "obs": 0.047,
+  "obs": 0.041,
   "glint": 11.7,
   "hazy": true
  },
@@ -2655,7 +2655,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-08-16_S2B_R032_cm.png",
-  "obs": 0.02,
+  "obs": 0.017,
   "glint": 33.1,
   "hazy": true
  },
@@ -2674,7 +2674,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-08-19_S2B_R075_cm.png",
-  "obs": 0.027,
+  "obs": 0.023,
   "glint": 14.1,
   "hazy": false
  },
@@ -2693,7 +2693,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-08-26_S2B_R032_cm.png",
-  "obs": 0.294,
+  "obs": 0.355,
   "glint": 34.5,
   "hazy": true
  },
@@ -2750,7 +2750,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-09-02_S2A_R032_cm.png",
-  "obs": 0.06,
+  "obs": 0.094,
   "glint": 35.6,
   "hazy": false
  },
@@ -2807,7 +2807,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-09-15_S2B_R032_cm.png",
-  "obs": 0.051,
+  "obs": 0.06,
   "glint": 38.3,
   "hazy": false
  },
@@ -2826,7 +2826,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-09-28_S2B_R075_cm.png",
-  "obs": 0.509,
+  "obs": 0.436,
   "glint": 27.3,
   "hazy": true
  },
@@ -3054,7 +3054,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-12-11_S2A_R032_cm.png",
-  "obs": 0.813,
+  "obs": 0.697,
   "glint": 60.1,
   "hazy": false
  },
@@ -3073,7 +3073,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-12-14_S2A_R075_cm.png",
-  "obs": 0.134,
+  "obs": 0.115,
   "glint": 49.4,
   "hazy": false
  },
@@ -3092,7 +3092,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-12-17_S2B_R075_cm.png",
-  "obs": 0.848,
+  "obs": 0.744,
   "glint": 48.6,
   "hazy": true
  },
@@ -3111,7 +3111,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2025-12-19_S2C_R032_cm.png",
-  "obs": 0.008,
+  "obs": 0.007,
   "glint": 59.8,
   "hazy": false
  },
@@ -3206,7 +3206,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2026-02-15_S2B_R075_cm.png",
-  "obs": 0.018,
+  "obs": 0.016,
   "glint": 38.9,
   "hazy": true
  },
@@ -3263,7 +3263,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2026-04-08_S2C_R032_cm.png",
-  "obs": 0.889,
+  "obs": 0.858,
   "glint": 36.6,
   "hazy": true
  },
@@ -3320,7 +3320,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2026-05-03_S2B_R032_cm.png",
-  "obs": 0.175,
+  "obs": 0.156,
   "glint": 30.5,
   "hazy": false
  },
@@ -3358,7 +3358,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2026-05-31_S2C_R075_cm.png",
-  "obs": 0.918,
+  "obs": 0.911,
   "glint": 6.2,
   "hazy": false
  },
@@ -3415,7 +3415,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2026-07-07_S2C_R032_cm.png",
-  "obs": 0.954,
+  "obs": 0.93,
   "glint": 29.3,
   "hazy": false
  },
@@ -3434,7 +3434,7 @@
   "offset_corrected": false,
   "role": "task",
   "cm": "img/ZZ/2026-07-12_S2B_R032_cm.png",
-  "obs": 0.011,
+  "obs": 0.025,
   "glint": 29.6,
   "hazy": true
  }
