@@ -32,7 +32,7 @@ let pz = null;                  // step 3 working copy of the open period
 let bef = null;                 // { i, prev, why, moved, stuck }
 let leftOverride = null;        // 临时换的左图（看上一期原图、某个框的前图）；换期时清掉
 let brush = 1, brushSize = 1;   // kept from period to period
-let aiShow = true;              // 第三步：AI 预标（prefill/index.json 里列出的期才有；10-03 起株洲南、衡阳北都有）
+let aiShow = true;              // 第三步：AI 预标（prefill/index.json 里列出的期才有；10-03 起株洲南、衡阳北都有，10-03 晚起韶关南也有）
 const aiMaps = {};
 let prefillInfo = null;         // 本测点的预标说明 { version, dates, note }；没有预标时为 null
 const prefillReady = fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
