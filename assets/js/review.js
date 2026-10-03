@@ -248,7 +248,7 @@ function matches(code, p, type) {
   if (type === 'uncomparable') return c?.status === 'uncomparable' || q?.clear === 'no';
   if (type === 'check3') return stepThree(p, l, reviewsOf(code, p.scene_id)).state === 'done';
   if (type === 'fb') return !!latestFb(code, p.scene_id);
-  if (type === 'reply') return !!a?.again?.items?.some(x => x.sec === '留言答复');
+  if (type === 'reply') return !!a?.again?.items?.some(x => x.sec === '留言答复' || x.sec === '留言答复2');
   return true;
 }
 function buildItems() {
@@ -397,7 +397,7 @@ async function open(it, keepWork = false) {
   const agItems = a?.again?.items || [];
   const agPend = againPending(code, p);
   const SEC = { 二: '10-01 夜分歧复核 · AI 可能对，再看一眼', 三: '10-01 夜分歧复核 · 薄云期判法要统一', 四: '10-01 夜分歧复核 · 要修的记录',
-    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言', 前图规则: '10-03 前图规则' };
+    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言', 前图规则: '10-03 前图规则', 留言答复2: '10-03 晚 · 答复你的留言' };
   const lastDec = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision))
     .sort((x, y) => (isAfter(x, y) ? 1 : -1)).pop();
   const doneIt = x => !!lastDec && !!x.at && !!(lastDec._fresh || lastDec._pending || new Date(lastDec.created_at) >= new Date(x.at));
