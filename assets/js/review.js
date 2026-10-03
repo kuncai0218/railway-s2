@@ -422,7 +422,9 @@ async function open(it, keepWork = false) {
   // 影像
   va.setImage(prev[imgKind], `上一期 ${prev.date}`);
   vb.setImage(p[imgKind], `这一期 ${p.date}`);
-  scene.aoi = sites[code].aoi ? sites[code].aoi.ring : null;
+  // 复核台先用新观察范围（10-03 晚组长：河右侧所有山体 + 右侧河岸线，sites.json 的 aoi_v2）；判读页同学看到的还是 aoi，等组长确认
+  const aoiR = sites[code].aoi_v2 || sites[code].aoi;
+  scene.aoi = aoiR ? aoiR.ring : null;
   scene.rail = sites[code].railway.lines;
   curPrevQ = clone(pq?.boxes || []);
   scene.setLayer('prevQ', clone(curPrevQ), { style: 'quality', viewer: 0, labels: false });
