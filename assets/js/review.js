@@ -284,7 +284,8 @@ function aiBox(a, b) {
   // 放回复核的期（10-02 起）：对组长已保存的框直接给结论和动作，按框号和范围对上，优先于原结论（原结论只针对同学的框）
   const op = (a?.again?.ops || []).find(o => o.box === b.id && geomClose(o.geom, b));
   if (op) return { id: b.id, geom: op.geom, verdict: op.verdict, group: op.group, action: op.action, suggest_tags: op.tags || null, overall: op.overall || null,
-    reason: `${op.src ? `${op.src}：` : ''}${op.reason || ''}`, confidence: op.confidence || null, seen: '看图', stale: false, note: op.note ?? null };
+    reason: `${op.src ? `${op.src}：` : ''}${op.reason || ''}`, confidence: op.confidence || null, seen: '看图', stale: false, note: op.note ?? null,
+    suggest_before: op.before || null };   // 10-04 第四轮：建议这个框换一张前图（记在框上 before）
   const v = (a?.boxes || []).find(x => x.id === b.id);
   if (!v) return null;
   // 只是框号相同、位置完全不同的框（组长删掉同学的框后，新加的框用了同一个号）不套用 AI 结论（10-02 晚：2025-06-17 新框被建议删除）
@@ -304,6 +305,7 @@ function proposal(code, p, sd) {
     const nb = clone(b);
     if (v?.suggest_tags) nb.tags = [...v.suggest_tags];
     if (v?.note != null) nb.note = v.note;
+    if (v?.suggest_before) nb.before = v.suggest_before;
     keep.push(nb);
   }
   let next = sboxes.reduce((m, b) => Math.max(m, b.id || 0), 0) + 1;
@@ -397,7 +399,8 @@ async function open(it, keepWork = false) {
   const agItems = a?.again?.items || [];
   const agPend = againPending(code, p);
   const SEC = { 二: '10-01 夜分歧复核 · AI 可能对，再看一眼', 三: '10-01 夜分歧复核 · 薄云期判法要统一', 四: '10-01 夜分歧复核 · 要修的记录',
-    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言', 前图规则: '10-03 前图规则', 留言答复2: '10-03 晚 · 答复你的留言', 预标核查: '10-03 晚 · 第三步预标核查（要你处理的框、新发现的漏标）' };
+    反光复核: '10-02 反光复核', 像元复核: '10-02 像元标注时发现', 留言答复: '10-02 晚 · 答复你的留言', 前图规则: '10-03 前图规则', 留言答复2: '10-03 晚 · 答复你的留言', 预标核查: '10-03 晚 · 第三步预标核查（要你处理的框、新发现的漏标）',
+    第四轮: '10-04 晚 · 第四轮核对（换前图、删框、改类别，点一下就行）' };
   const lastDec = reviewsOf(code, p.scene_id).filter(r => r.kind !== 'precise' && ['confirmed', 'modified', 'rejected'].includes(r.decision))
     .sort((x, y) => (isAfter(x, y) ? 1 : -1)).pop();
   const doneIt = x => !!lastDec && !!x.at && !!(lastDec._fresh || lastDec._pending || new Date(lastDec.created_at) >= new Date(x.at));
@@ -483,6 +486,10 @@ function aiBlock(v) {
   else if (v.action === 'retag') act = `建议：类别改为 ${v.suggest_tags.map(t => TAG[t] || t).join('、')}`;
   else if (v.action === 'keep') act = v.soft ? '建议：保留，可加上“农田”类别' : '建议：保留';
   else act = '建议：请你看图定';
+  if (v.suggest_before && v.action !== 'delete') {
+    const bd = cur ? periods[cur.code].find(x => x.scene_id === v.suggest_before)?.date : null;
+    act += `；前图换成 ${bd || v.suggest_before}（点“按 AI”就换）`;
+  }
   return `<div class="ai"><span class="g ${g}">${esc(v.group)}</span>${esc(v.verdict)}${v.confidence ? ` <span class="tiny">把握：${esc(v.confidence)}</span>` : ''}${v.seen === '看图' ? ' <span class="tiny">· 看过图</span>' : ''}
     ${v.reason ? `<div class="why">${esc(v.reason)}</div>` : ''}${v.stale ? '<div class="why" style="color:#b45309">同学在复核之后改动过这个框，AI 结论针对旧框。</div>' : ''}<div class="act">${act}</div></div>`;
 }
@@ -518,7 +525,10 @@ function renderBoxes() {
       if (act === 'restore') { mine.boxes.push(clone(b)); mine.boxes.sort((x, y) => x.id - y.id); afterEdit(); return; }
       if (act === 'ai' && m && v) {
         if (v.action === 'delete') { mine.boxes.splice(mine.boxes.indexOf(m), 1); if (v.overall && !mine.overall.includes(v.overall)) mine.overall.push(v.overall); }
-        else if (v.suggest_tags) m.tags = [...v.suggest_tags];
+        else {
+          if (v.suggest_tags) m.tags = [...v.suggest_tags];
+          if (v.suggest_before) { m.before = v.suggest_before; const bd = periods[cur.code].find(x => x.scene_id === v.suggest_before)?.date; if (bd) setRef(bd); }
+        }
         afterEdit(); return;
       }
       if (tag && m) { const k = m.tags.indexOf(tag); if (k >= 0) m.tags.splice(k, 1); else m.tags.push(tag); afterEdit(); return; }
