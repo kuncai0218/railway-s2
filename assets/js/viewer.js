@@ -555,7 +555,7 @@ class Viewer {
   _renderPaint() {
     const sc = this.scene, P = sc.paint;
     const gridOn = !!(P && P.grid && sc.view.scale >= GRID_MIN_SCALE);
-    const key = P ? `${sc.paintVersion}|${P.current}|${P.show}|${gridOn}` : '';
+    const key = P ? `${sc.paintVersion}|${P.current}|${P.show}|${gridOn}|${P.fill !== false}|${!!P.dimOthers}` : '';
     if (key === this._paintKey) return;
     this._paintKey = key;
     const ctx = this.mask.getContext('2d');
@@ -563,17 +563,24 @@ class Viewer {
     this.gPaint.innerHTML = '';
     if (!P) return;
     if (P.show) {
+      // 精标台用的两个开关（判读页不设，画法不变）：dimOthers = 同一期别的框调淡，只突出当前的框；fill === false = 只描边、不涂色，看清底下的影像
+      const dimOf = bx => !!P.dimOthers && bx.id !== P.current;
       const img = ctx.createImageData(SIZE, SIZE);
-      for (const bx of P.boxes) {
+      if (P.fill !== false) for (const bx of P.boxes) {
+        const dim = dimOf(bx);
         for (let j = 0; j < bx.h; j++) for (let i = 0; i < bx.w; i++) {
           const v = bx.cells[j * bx.w + i];
-          if (v) img.data.set(PAINT_RGBA[v], ((bx.r0 + j) * SIZE + bx.c0 + i) * 4);
+          if (v) img.data.set(dim ? [...PAINT_RGBA[v].slice(0, 3), 40] : PAINT_RGBA[v], ((bx.r0 + j) * SIZE + bx.c0 + i) * 4);
         }
       }
       ctx.putImageData(img, 0, 0);
       for (const bx of P.boxes) for (const v of [1, 2]) {
         const d = outlinePath(bx, v);
         if (!d) continue;
+        if (dimOf(bx)) {
+          el('path', { d, fill: 'none', stroke: PAINT_LINE[v], 'stroke-width': 1, opacity: 0.45, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke' }, this.gPaint);
+          continue;
+        }
         el('path', { d, fill: 'none', stroke: 'rgba(0,0,0,.6)', 'stroke-width': 3.5, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke' }, this.gPaint);
         el('path', { d, fill: 'none', stroke: PAINT_LINE[v], 'stroke-width': 1.6, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke' }, this.gPaint);
       }

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>精标台 · 三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/work.css">
+<link rel="stylesheet" href="assets/css/review.css">
+<link rel="stylesheet" href="assets/css/label.css">
+</head>
+<body class="rv-body">
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link" href="work.html">判读</a>
+  <a class="link" href="board.html">实时看板</a>
+  <a class="link" href="leader.html">组长台</a>
+  <a class="link" href="review.html">AI 复核台</a>
+  <a class="link on" href="label.html">精标台</a>
+  <span class="spacer"></span>
+  <span class="tiny" id="updated"></span>
+  <button class="mode-btn demo" id="modeBtn" title="切换演示模式 / 正式模式">演示模式</button>
+  <button class="btn sm ghost" id="helpBtn">快捷键</button>
+</nav>
+
+<div class="rv-app lb-app">
+  <!-- 左：框的队列 -->
+  <aside class="rv-queue">
+    <div class="rv-sites" id="siteTabs"></div>
+    <select class="input rv-filter" id="fType">
+      <option value="todo">还没确认的框</option>
+      <option value="all">全部框</option>
+      <option value="unsure">有“拿不准”的框</option>
+      <option value="ask">要你定的框（类别、重复、挪期）</option>
+      <option value="edited">我改过的框</option>
+      <option value="done">已确认的框</option>
+      <option value="unsaved">确认了、还没保存的期</option>
+    </select>
+    <select class="input rv-filter" id="fTag">
+      <option value="">所有类别</option>
+      <option value="farm">农田</option>
+      <option value="veg">植被增加 / 减少</option>
+      <option value="bare">裸土 / 施工</option>
+      <option value="road">道路 / 建筑</option>
+      <option value="water">水面扩大 / 缩小</option>
+      <option value="unclear">说不清 / 没选类别</option>
+    </select>
+    <div class="rv-progress"><div class="progress"><i id="progBar" style="width:0"></i></div><span class="tiny" id="progText"></span></div>
+    <div class="rv-list lb-list" id="qList"><div class="tiny" style="padding:8px">正在读取…</div></div>
+  </aside>
+
+  <!-- 中：前图和这一期，同步缩放，标注叠在两张图上 -->
+  <section class="rv-images">
+    <div class="rv-toolbar">
+      <div class="seg" id="imgSeg" title="T 切换"><button data-img="tc" class="on">真彩色</button><button data-img="fc">植被假彩色</button></div>
+      <div class="seg" id="brushSeg" title="画笔：1 变化 · 2 拿不准 · 3 擦除">
+        <button data-brush="1" class="on"><i class="sw red"></i>变化 1</button><button data-brush="2"><i class="sw yel"></i>拿不准 2</button><button data-brush="0"><i class="sw er"></i>擦除 3</button>
+      </div>
+      <div class="seg" id="sizeSeg" title="画笔大小：[ 和 ]"><button data-size="1" class="on">1 格</button><button data-size="2">2×2</button><button data-size="3">3×3</button></div>
+      <button class="tbtn" id="undoBtn" title="Ctrl+Z">撤销</button>
+      <button class="tbtn on" id="paintBtn" title="H：显示 / 隐藏标注，看原图">标注</button>
+      <button class="tbtn on" id="fillBtn" title="O：涂色 / 只描边（看清格子底下的影像）">涂色</button>
+      <button class="tbtn on" id="gridBtn" title="G：放大后显示像元格线">格线</button>
+      <button class="tbtn" id="aiBtn" title="A：叠一层青色的 AI 原始精标（和你改过的对照）">AI 原标注</button>
+      <button class="tbtn" id="blinkBtn" title="按住 B：右图临时换成前图，来回比较">右图看前图</button>
+      <button class="tbtn" id="fitBtn" title="F：放大到这个框">定位</button>
+      <span class="rv-hint">滚轮放大 · 在框里按住涂 · 框外按住拖动（或右键 / 按住空格）</span>
+    </div>
+    <div class="rv-pair"><div class="vbox" id="vA"></div><div class="vbox" id="vB"></div></div>
+    <div class="rv-legend">
+      <span><i class="lg red"></i>变化</span><span><i class="lg yellow"></i>拿不准</span><span><i class="lg box"></i>当前的框</span>
+      <span><i class="lg cyan"></i>AI 原始精标（按 A 显示）</span><span><i class="lg rail"></i>铁路</span>
+    </div>
+  </section>
+
+  <!-- 右：这个框的信息、说明和操作 -->
+  <aside class="rv-panel" id="panel">
+    <div class="rv-empty" id="emptyMsg">
+      <h3>精标台</h3>
+      <p class="muted">逐框检查第三步的逐格标注：红 = 变化，黄 = 拿不准。标注是 AI 精标（10-04 版），已经逐框放大核对过；觉得不对直接在图上涂改。</p>
+      <p class="tiny">左边选一个框开始。Enter 确认这个框并跳到下一个；一期的框都确认了就自动保存这一期。</p>
+    </div>
+    <div id="boxPanel" hidden>
+      <div class="lb-head">
+        <div class="lb-title" id="bTitle"></div>
+        <div class="lb-tags" id="bTags"></div>
+        <div class="lb-note" id="bNote"></div>
+      </div>
+      <div class="lb-ask" id="bAsk" hidden></div>
+      <div class="lb-pair" id="bPair"></div>
+      <div class="lb-count" id="bCount"></div>
+      <div class="lb-actions">
+        <button class="btn primary" id="okBtn" title="Enter">确认这个框，下一个</button>
+        <div class="lb-row">
+          <button class="btn sm" id="prevBtn" title="←">上一个框</button>
+          <button class="btn sm" id="nextBtn" title="→">下一个框</button>
+          <span class="sp"></span>
+          <button class="btn sm" id="resetBtn" title="R：恢复成 AI 精标（可以撤销）">恢复 AI 标注</button>
+        </div>
+        <div class="lb-row">
+          <button class="btn sm ghost" id="allYelBtn">整框涂成拿不准</button>
+          <button class="btn sm ghost" id="redToYelBtn">红的都改成拿不准</button>
+          <button class="btn sm ghost danger" id="clearBtn">清空这个框</button>
+        </div>
+      </div>
+      <div class="lb-sec">
+        <h4>AI 精标说明</h4>
+        <div class="lb-ai" id="bAi"></div>
+      </div>
+      <div class="lb-sec">
+        <h4>这一期的框 <span class="tiny" id="perState"></span></h4>
+        <div class="lb-perlist" id="perList"></div>
+        <button class="btn sm" id="saveBtn" title="Ctrl+S">保存这一期</button>
+        <div class="err" id="err"></div>
+      </div>
+      <div class="lb-sec tiny" id="modeNote"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="modal-back" id="modeModal">
+  <div class="modal">
+    <h3>切换到正式模式？</h3>
+    <p class="small">正式模式下，“保存这一期”会把这一期所有框的逐格标注写进数据库：格式和判读页第三步一样（readings 表，kind = precise，另记 by = leader），
+      同时记一条“第三步没问题”的复核（reviews 表，kind = precise）。判读页上这一期的第三步会显示为已完成、组长已通过。</p>
+    <p class="small">演示模式下只存在这台电脑的浏览器里，不写数据库；改动和确认都会保留，切到正式模式后可以再保存。</p>
+    <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="modeCancel">先不换</button><button class="btn primary" id="modeOk">换成正式模式</button></div>
+  </div>
+</div>
+
+<div class="modal-back" id="helpModal">
+  <div class="modal">
+    <h3>快捷键</h3>
+    <table class="lb-keys">
+      <tr><td>Enter</td><td>确认这个框，跳到下一个</td></tr>
+      <tr><td>← / →</td><td>上一个 / 下一个框（列表里的顺序）</td></tr>
+      <tr><td>1 / 2 / 3</td><td>画笔：变化 / 拿不准 / 擦除</td></tr>
+      <tr><td>[ / ]</td><td>画笔变小 / 变大（1 格、2×2、3×3）</td></tr>
+      <tr><td>Ctrl+Z</td><td>撤销</td></tr>
+      <tr><td>H</td><td>显示 / 隐藏标注（看原图）</td></tr>
+      <tr><td>O</td><td>涂色 / 只描边（看清格子底下的影像）</td></tr>
+      <tr><td>G</td><td>格线</td></tr>
+      <tr><td>T</td><td>真彩色 / 假彩色</td></tr>
+      <tr><td>A</td><td>叠 AI 原始精标（青色）对照</td></tr>
+      <tr><td>按住 B</td><td>右图临时换成前图</td></tr>
+      <tr><td>F</td><td>放大到这个框</td></tr>
+      <tr><td>R</td><td>这个框恢复成 AI 精标</td></tr>
+      <tr><td>Ctrl+S</td><td>保存这一期</td></tr>
+      <tr><td>滚轮 / 右键拖 / 空格+拖</td><td>放大缩小 / 平移</td></tr>
+    </table>
+    <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="helpClose">关闭</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="assets/js/label.js"></script>
+</body>
+</html>
