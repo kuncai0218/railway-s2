@@ -377,6 +377,7 @@ function renderPeriod() {
 scene.onPaint = () => {
   const bx = curBox();
   if (!bx) return;
+  if (scene.bare) toggleBare(false);   // 在原图上涂了：先把标注显示回来
   bx.src = 'local';
   remember(bx, { ok: false });
   renderCount(); renderPeriod(); renderList(); renderSites();
@@ -481,6 +482,14 @@ $('paintBtn').onclick = () => { const v = toggle('paintBtn'); if (scene.paint) {
 $('gridBtn').onclick = () => { const v = toggle('gridBtn'); if (scene.paint) { scene.paint.grid = v; scene.paintChanged(); } };
 $('aiBtn').onclick = () => { aiShow = toggle('aiBtn'); scene.toggleAiMap(aiShow); };
 $('fitBtn').onclick = () => { const bx = curBox(); if (bx) scene.focusBox(bx, 1.7); };
+// 原图：只看影像（scene.bare：隐藏框线、标注、铁路、AI 原标注），再按一次恢复
+function toggleBare(on = !scene.bare) {
+  scene.bare = on;
+  scene.render();
+  $('bareBtn').classList.toggle('on', on);
+  $('bareBtn').textContent = on ? '原图（按 V 恢复）' : '原图';
+}
+$('bareBtn').onclick = () => toggleBare();
 $('fillBtn').onclick = () => { fillOn = toggle('fillBtn'); if (scene.paint) { scene.paint.fill = fillOn; scene.paintChanged(); } };
 $('blinkBtn').onclick = () => { blink = toggle('blinkBtn'); setImages(); };
 $('okBtn').onclick = confirmBox;
@@ -531,6 +540,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'a') $('aiBtn').click();
   else if (k === 'f') $('fitBtn').click();
   else if (k === 'o') $('fillBtn').click();
+  else if (k === 'v') toggleBare();
   else if (k === 'r') $('resetBtn').click();
   else if (k === 'b' && !e.repeat && !blink) { blink = true; $('blinkBtn').classList.add('on'); setImages(); }
 });

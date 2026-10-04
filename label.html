@@ -58,7 +58,8 @@
       </div>
       <div class="seg" id="sizeSeg" title="画笔大小：[ 和 ]"><button data-size="1" class="on">1 格</button><button data-size="2">2×2</button><button data-size="3">3×3</button></div>
       <button class="tbtn" id="undoBtn" title="Ctrl+Z">撤销</button>
-      <button class="tbtn on" id="paintBtn" title="H：显示 / 隐藏标注，看原图">标注</button>
+      <button class="tbtn" id="bareBtn" title="V：只看原图——隐藏所有框线、标注、铁路和 AI 原标注，再按一次恢复">原图</button>
+      <button class="tbtn on" id="paintBtn" title="H：显示 / 隐藏标注（框线还在）">标注</button>
       <button class="tbtn on" id="fillBtn" title="O：涂色 / 只描边（看清格子底下的影像）">涂色</button>
       <button class="tbtn on" id="gridBtn" title="G：放大后显示像元格线">格线</button>
       <button class="tbtn" id="aiBtn" title="A：叠一层青色的 AI 原始精标（和你改过的对照）">AI 原标注</button>
@@ -137,7 +138,8 @@
       <tr><td>1 / 2 / 3</td><td>画笔：变化 / 拿不准 / 擦除</td></tr>
       <tr><td>[ / ]</td><td>画笔变小 / 变大（1 格、2×2、3×3）</td></tr>
       <tr><td>Ctrl+Z</td><td>撤销</td></tr>
-      <tr><td>H</td><td>显示 / 隐藏标注（看原图）</td></tr>
+      <tr><td>V</td><td>原图：只看影像，隐藏所有框线、标注、铁路（再按一次恢复；开始涂就自动恢复）</td></tr>
+      <tr><td>H</td><td>显示 / 隐藏标注（框线还在）</td></tr>
       <tr><td>O</td><td>涂色 / 只描边（看清格子底下的影像）</td></tr>
       <tr><td>G</td><td>格线</td></tr>
       <tr><td>T</td><td>真彩色 / 假彩色</td></tr>
