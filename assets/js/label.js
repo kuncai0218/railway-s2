@@ -1,4 +1,4 @@
-// 精标台（2026-10-04）：组长逐框检查、修改第三步的逐格标注（AI 精标 10-04 版）。
+// 精标台（2026-10-04）：组长逐框检查、修改第三步的逐格标注（AI 精标 10-04 版；10-04 晚第三轮复核后为 10-04b，换版时本机没手改的确认作废）。
 // 左：框的队列（测点、筛选、进度）；中：这个框的前图和这一期，同步缩放，标注叠在两张图上，直接涂改；
 // 右：类别、前后日期、红黄格数、AI 精标说明，确认 / 恢复 / 保存。
 // 一个框的标注从哪来（先找到的为准）：这台电脑上改过、确认过的（草稿）→ 数据库里这一期最新的第三步记录（框的位置没变）→ AI 精标（prefill/<测点>/<日期>.png）。
@@ -76,6 +76,19 @@ const latestOf = code => sid => slotOf(code, sid);
 
 // ---------------------------------------------------------------- AI 精标（预标图）和说明
 const prefillIndex = fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+const aiVer = {};     // code → 现在的 AI 精标版本（prefill/index.json 的 version，如 ZZ-AI-20261004b）
+// AI 精标换了版本：这台电脑上“确认了、没手改”的框作废（新版标注不一样了，要按新版再看）；手改过的保留你的修改，框里提示 AI 已更新
+async function dropStale() {
+  const ix = await prefillIndex;
+  for (const c of SITE_ORDER) aiVer[c] = ix?.[c]?.version || '';
+  let n = 0;
+  for (const [k, s] of Object.entries(ST)) {
+    const v = aiVer[k.split('|')[0]];
+    if (!s || !v || (s.v || '') === v) continue;
+    if (!s.chg) { delete ST[k]; n++; } else s.aiOld = true;
+  }
+  if (n) { writeState(); toast(`AI 精标更新到新版：这台电脑上 ${n} 个确认过、没改过的框改回“还没确认”，请按新版再看`); }
+}
 function aiMap(code, date) {
   const S = pre[code] || (pre[code] = { info: null, maps: {} });
   if (!S.maps[date]) S.maps[date] = prefillIndex.then(ix => {
@@ -268,7 +281,8 @@ async function periodWork(it) {
 const diffAi = bx => { let n = 0; for (let i = 0; i < bx.cells.length; i++) if (bx.cells[i] !== bx.aiCells[i]) n++; return n; };
 function remember(bx, patch) {
   const prev = ST[bx.key] || {};
-  ST[bx.key] = { ...prev, c0: bx.c0, r0: bx.r0, w: bx.w, h: bx.h, rle: encodeCells(bx.cells), chg: diffAi(bx), at: new Date().toISOString(), ...patch };
+  ST[bx.key] = { ...prev, c0: bx.c0, r0: bx.r0, w: bx.w, h: bx.h, rle: encodeCells(bx.cells), chg: diffAi(bx), at: new Date().toISOString(),
+    v: aiVer[bx.key.split('|')[0]] || '', aiOld: false, ...patch };
   writeState();
 }
 
@@ -357,7 +371,8 @@ function renderCount() {
   const { n1, n2 } = countCells(bx.cells), d = diffAi(bx);
   const src = { local: '这台电脑上改过的', saved: '数据库里已保存的', ai: 'AI 精标', none: '没有预标' }[bx.src] || '';
   $('bCount').innerHTML = `<span><b class="r">红 ${n1}</b> 格</span><span><b class="y">黄 ${n2}</b> 格</span><span class="tiny">共 ${bx.w * bx.h} 格 · 来自${src}</span>`
-    + (d ? `<span class="chg">比 AI 精标改了 ${d} 格</span>` : '');
+    + (d ? `<span class="chg">比 AI 精标改了 ${d} 格</span>` : '')
+    + (bx.src === 'local' && ST[bx.key]?.aiOld ? '<span class="chg">AI 精标已更新到新版，这里仍是你在这台电脑上改过的；按 A 对照新版，按 R 换成新版</span>' : '');
 }
 function renderPeriod() {
   const w = work[cur.pkey];
@@ -561,6 +576,7 @@ async function init() {
   }
   $('updated').textContent = `数据更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
   recompute();
+  await dropStale();
   buildItems();
   await prepareSite(site);
   renderSites();
