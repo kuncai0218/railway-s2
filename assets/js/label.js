@@ -77,17 +77,21 @@ const latestOf = code => sid => slotOf(code, sid);
 // ---------------------------------------------------------------- AI 精标（预标图）和说明
 const prefillIndex = fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
 const aiVer = {};     // code → 现在的 AI 精标版本（prefill/index.json 的 version，如 ZZ-AI-20261004b）
-// AI 精标换了版本：这台电脑上“确认了、没手改”的框作废（新版标注不一样了，要按新版再看）；手改过的保留你的修改，框里提示 AI 已更新
+// AI 精标换了版本：这台电脑上“确认了、没手改”的框作废（新版标注不一样了，要按新版再看）；手改过的保留你的修改，框里提示 AI 已更新。
+// 只差一版、而且 index.json 记了这一版哪些框变了（changed）时，只作废变了的框；没变的框保留确认，记成新版
 async function dropStale() {
   const ix = await prefillIndex;
   for (const c of SITE_ORDER) aiVer[c] = ix?.[c]?.version || '';
-  let n = 0;
+  let n = 0, kept = 0;
   for (const [k, s] of Object.entries(ST)) {
-    const v = aiVer[k.split('|')[0]];
+    const c = k.split('|')[0], v = aiVer[c];
     if (!s || !v || (s.v || '') === v) continue;
+    const info = ix?.[c] || {};
+    if (info.prev && (s.v || '') === info.prev && Array.isArray(info.changed) && !info.changed.includes(k.slice(c.length + 1))) { s.v = v; kept++; continue; }
     if (!s.chg) { delete ST[k]; n++; } else s.aiOld = true;
   }
-  if (n) { writeState(); toast(`AI 精标更新到新版：这台电脑上 ${n} 个确认过、没改过的框改回“还没确认”，请按新版再看`); }
+  if (n || kept) writeState();
+  if (n) toast(`AI 精标更新到新版：这台电脑上 ${n} 个确认过、没改过、这一版标注变了的框改回“还没确认”，请按新版再看`);
 }
 function aiMap(code, date) {
   const S = pre[code] || (pre[code] = { info: null, maps: {} });
