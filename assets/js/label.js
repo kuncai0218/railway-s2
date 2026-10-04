@@ -199,6 +199,8 @@ function passFilter(it) {
   const st = statusOf(it);
   if (fType === 'todo') return st === 'todo' || st === 'ed';
   if (fType === 'unsure') { const c = countsOf(it); return !!c && c.n2 > 0; }
+  // 10-04 晚（训练导出改成没保存的框直接用 AI 精标）：AI 拿不准的格多的框，先看这些——黄 ≥ 10 格且占红黄的三成以上、还没保存
+  if (fType === 'heavy') { const c = countsOf(it); return st !== 'sv' && !!c && c.n2 >= 10 && c.n2 >= 0.3 * (c.n1 + c.n2); }
   if (fType === 'ask') return !!notes[it.code]?.boxes?.[`${it.p.date}|${it.b.id}`]?.ask;
   if (fType === 'edited') return (ST[it.key]?.chg || 0) > 0;
   if (fType === 'done') return st === 'ok' || st === 'sv';
