@@ -517,6 +517,7 @@ $('okBtn').onclick = confirmBox;
 $('prevBtn').onclick = () => step(-1);
 $('nextBtn').onclick = () => step(1);
 $('resetBtn').onclick = () => editBox(bx => bx.cells.set(bx.aiCells), '已恢复成 AI 精标（Ctrl+Z 可以撤销）');
+$('allRedBtn').onclick = () => editBox(bx => bx.cells.fill(1), '已把这个框整框改成变化（Ctrl+Z 可以撤销）');
 $('allYelBtn').onclick = () => editBox(bx => bx.cells.fill(2));
 $('redToYelBtn').onclick = () => editBox(bx => { for (let i = 0; i < bx.cells.length; i++) if (bx.cells[i] === 1) bx.cells[i] = 2; });
 $('clearBtn').onclick = () => editBox(bx => bx.cells.fill(0), '已清空这个框（Ctrl+Z 可以撤销）');
@@ -563,6 +564,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'o') $('fillBtn').click();
   else if (k === 'v') toggleBare();
   else if (k === 'r') $('resetBtn').click();
+  else if (k === 'w') $('allRedBtn').click();
   else if (k === 'b' && !e.repeat && !blink) { blink = true; $('blinkBtn').classList.add('on'); setImages(); }
 });
 window.addEventListener('keyup', e => {
