@@ -71,7 +71,7 @@
       <span><i class="lg hatch-y"></i>待看（AI 拿不准，或沿用时 AI 认为变了）</span>
       <span><i class="lg hatch-w"></i>标了“拿不准”</span><span><i class="lg rail"></i>铁路参考线</span>
       <span><i class="lg hatch-shadow"></i>云影遮挡（训练时忽略）</span>
-      <span class="rv-hint">滚轮放大 · 右键拖 / 按住空格拖动</span>
+      <span class="rv-hint">悬浮看类别 · 滚轮放大 · 右键拖 / 按住空格拖动</span>
     </div>
   </section>
 
@@ -89,6 +89,16 @@
         <div class="lb-note" id="pSrc"></div>
       </div>
       <div class="lc-banner" id="banner" hidden></div>
+      <section class="lb-sec lc-quality-ai" id="qualityAiSec" aria-labelledby="qualityAiTitle" hidden>
+        <h4 id="qualityAiTitle">AI 整期质量建议</h4>
+        <p id="qualityAiVerdict"></p>
+        <p class="tiny" id="qualityAiNote"></p>
+        <ul class="tiny" id="qualityAiBasis"></ul>
+        <p class="tiny" id="qualityAiMetrics"></p>
+        <p class="tiny">先看整幅再确认。采用建议只填入下面的质量选项；人工确认后才生效。</p>
+        <div class="lb-row"><button class="btn sm" id="qualityAdoptBtn">采用建议</button></div>
+        <button class="btn sm primary" id="qualitySkipBtn" hidden>确认看不清，保存并跳过</button>
+      </section>
       <section class="lb-sec lc-quality" id="qualitySec" aria-labelledby="qualityTitle">
         <h4 id="qualityTitle">第一步 · 整期影像质量</h4>
         <p class="tiny" id="qualitySummary"></p>
@@ -214,10 +224,11 @@
     </table>
     <h4>怎么标最快</h4>
     <ol class="small">
-      <li><b>先评整期质量</b>：看整幅影像，选清楚、模糊仍能看、局部看不清或基本看不清，填写原因后点“确认质量”。旧标注没有质量判断的，会显示“未评定”，需要补评。局部遮挡涂出范围后再保存。</li>
+      <li><b>先评整期质量</b>：看整幅影像，选清楚、模糊仍能看、局部看不清或基本看不清，填写原因后点“确认质量”。AI建议可以先填入选项，再由你确认；整体看不清时可点“确认看不清，保存并跳过”。旧标注没有质量判断的，会显示“未评定”，需要补评。局部遮挡涂出范围后再保存。</li>
       <li><b>先标锚定期</b>（列表筛选“锚定期”，每个季度一期最清楚的，带 ★）：从 AI 预标开始，按 <b>J</b> 一片一片看黄斜线的地方——对的就用同一类点一下（黄斜线消失），错的改掉；再整幅扫一遍，保存。</li>
       <li><b>再标其余各期</b>：打开后按 <b>P</b> 沿用前面最近一期已保存的标注。只有 AI 认为变了的地方、变化检测标了变化的地方换成这一期的预标并标黄，按 J 逐片看完就能保存。</li>
       <li>超像素（S）适合大部分地方；边界不准的用画笔（D）补；一整片被 AI 认错类的用整片（F）一下改掉；形状清楚的施工区、水塘用套索（L）。</li>
+      <li>鼠标悬浮在影像上，会显示这一格当前标注的类别及待看、拿不准、云影等记号。左图换成上一期对照时，浮签仍对应当前期标签，旁边会注明。</li>
       <li>保存后组长在右边“组长复核”里通过或退回；退回的期在列表筛选“组长退回的”里。</li>
     </ol>
     <h4>容易错的地方</h4>

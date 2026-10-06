@@ -44,7 +44,7 @@ try {
 } catch { /* storage blocked */ }
 if (!SITE_ORDER.includes(site)) site = 'ZZ';
 
-let sites = null, AIX = null;
+let sites = null, AIX = null, QAI = null;
 const P = {};
 let liveRows = [], demoRows = [], tableReady = null;
 let LAT = {};                      // 'code|scene_id' → { label, review }
@@ -161,7 +161,9 @@ function migrateWholeMask(w, version) {
 
 function normaliseQuality(q) {
   if (!q || !Object.hasOwn(QUALITY, q.status)) return null;
-  return { status: q.status, reasons: [...new Set((Array.isArray(q.reasons) ? q.reasons : []).filter(r => Object.hasOwn(REASONS, r)))], note: String(q.note || '').slice(0, 500), by: q.by || null, reviewed_at: q.reviewed_at || null };
+  const out = { status: q.status, reasons: [...new Set((Array.isArray(q.reasons) ? q.reasons : []).filter(r => Object.hasOwn(REASONS, r)))], note: String(q.note || '').slice(0, 500), by: q.by || null, reviewed_at: q.reviewed_at || null };
+  if (q.suggestion && Object.hasOwn(QUALITY, q.suggestion.status)) out.suggestion = { version: String(q.suggestion.version || '').slice(0, 120), source: q.suggestion.source === 'full_frame' ? 'full_frame' : 'prefill_fallback', status: q.suggestion.status };
+  return out;
 }
 function qualityReady(w = W) { return !switching && !!w?.quality && !w.qEditing && (!w.mode || w.mode === mode); }
 function requireQuality() {
@@ -355,6 +357,7 @@ class Scene {
       ty = clamp(ty, -SIZE * scale + r.height * 0.3, r.height * 0.7);
     }
     this.view = { scale, tx, ty };
+    if (this.hover) this.hover = { ...this.hover, x: (this.hover.mx - tx) / scale, y: (this.hover.my - ty) / scale };
     this.render();
   }
   zoomAt(f, mx, my) { const { scale, tx, ty } = this.view, ns = scale * f; this.setView(ns, mx - (mx - tx) * (ns / scale), my - (my - ty) * (ns / scale)); }
@@ -386,7 +389,11 @@ class Viewer {
     this.gCursor = document.createElementNS(NS, 'g'); this.gCursor.setAttribute('pointer-events', 'none');
     this.svg.append(this.gGrid, this.gRail, this.gFlash, this.gCursor);
     this.tag = document.createElement('div'); this.tag.className = 'viewer-tag';
-    box.append(this.stage, this.svg, this.tag);
+    this.hoverTip = document.createElement('div'); this.hoverTip.className = 'lc-hover'; this.hoverTip.hidden = true;
+    this.hoverTitle = document.createElement('strong'); this.hoverTitle.className = 'lc-hover-title';
+    this.hoverNote = document.createElement('span'); this.hoverNote.className = 'lc-hover-note';
+    this.hoverTip.append(this.hoverTitle, this.hoverNote);
+    box.append(this.stage, this.svg, this.tag, this.hoverTip);
     this._labKey = ''; this._detKey = ''; this._svgKey = '';
     this.drag = null;
     this._bind();
@@ -394,7 +401,7 @@ class Viewer {
   setImage(src, label) { if (this.img.getAttribute('src') !== src) this.img.src = src; this.tag.textContent = label; }
   toImage(ev) {
     const r = this.box.getBoundingClientRect(), { scale, tx, ty } = this.scene.view;
-    return { x: (ev.clientX - r.left - tx) / scale, y: (ev.clientY - r.top - ty) / scale, mx: ev.clientX - r.left, my: ev.clientY - r.top };
+    return { x: (ev.clientX - r.left - tx) / scale, y: (ev.clientY - r.top - ty) / scale, mx: ev.clientX - r.left, my: ev.clientY - r.top, viewer: this.index };
   }
   updateCursor(p) {
     const sc = this.scene;
@@ -408,7 +415,7 @@ class Viewer {
     const box = this.box, sc = this.scene;
     box.addEventListener('wheel', ev => { ev.preventDefault(); const p = this.toImage(ev); sc.zoomAt(ev.deltaY < 0 ? 1.18 : 1 / 1.18, p.mx, p.my); }, { passive: false });
     box.addEventListener('contextmenu', ev => ev.preventDefault());
-    box.addEventListener('pointerleave', () => { if (!this.drag) sc.setHover(null); });
+    box.addEventListener('pointerleave', () => sc.setHover(null));
     box.addEventListener('pointerdown', ev => {
       const p = this.toImage(ev);
       try { box.setPointerCapture(ev.pointerId); } catch { /* 合成事件、个别浏览器不支持 */ }
@@ -427,7 +434,7 @@ class Viewer {
     box.addEventListener('pointermove', ev => {
       const p = this.toImage(ev), d = this.drag;
       if (!d) { this.updateCursor(p); sc.setHover(p); return; }
-      if (d.type === 'pan') { sc.setView(d.view.scale, d.view.tx + (p.mx - d.start.mx), d.view.ty + (p.my - d.start.my)); return; }
+      if (d.type === 'pan') { sc.hover = p; sc.setView(d.view.scale, d.view.tx + (p.mx - d.start.mx), d.view.ty + (p.my - d.start.my)); return; }
       if (d.type === 'paint') { ops.stroke(p.x, p.y, d.last); d.last = p; sc.setHover(p); return; }
       if (d.type === 'lasso') {
         const l = d.pts[d.pts.length - 1];
@@ -445,6 +452,7 @@ class Viewer {
         if (d.pts.length >= 3) { ops.begin(); ops.polygon(d.pts); ops.end(); } else sc.setHover(sc.hover);
       }
       this.updateCursor(this.toImage(ev));
+      sc.setHover(box.matches(':hover') ? this.toImage(ev) : null);
     };
     box.addEventListener('pointerup', end);
     box.addEventListener('pointercancel', end);
@@ -544,6 +552,7 @@ class Viewer {
   }
   // 指针：当前窗口画画笔方块、超像素轮廓或套索；另一个窗口画小十字
   renderCursor() {
+    this.renderHover();
     const sc = this.scene, p = sc.hover, g = this.gCursor;
     g.innerHTML = '';
     if (sc.bare || !p || !W) return;
@@ -572,6 +581,23 @@ class Viewer {
     const d = `M${p.x - r},${p.y}h${2 * r}M${p.x},${p.y - r}v${2 * r}`;
     path(d, { stroke: 'rgba(0,0,0,.7)', 'stroke-width': 3.5, 'vector-effect': 'non-scaling-stroke' });
     path(d, { stroke: '#fff', 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' });
+  }
+  renderHover() {
+    const p = this.scene.hover, w = W, r = this.box.getBoundingClientRect();
+    const { scale, tx, ty } = this.scene.view, xImage = p ? (p.mx - tx) / scale : -1, yImage = p ? (p.my - ty) / scale : -1;
+    const inside = p && p.viewer === this.index && xImage >= 0 && yImage >= 0 && xImage < SIZE && yImage < SIZE && p.mx >= 0 && p.my >= 0 && p.mx < r.width && p.my < r.height;
+    this.hoverTip.hidden = !inside || !w || switching;
+    if (this.hoverTip.hidden) return;
+    const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || CLS[5];
+    const label = w.shadow[i] ? '云影 · 看不清' : w.whole[i] ? '看不清 · 整期不可判' : cls.name;
+    const marks = [w.uns[i] ? '拿不准' : '', w.todo[i] && !w.tch[i] && w.lab[i] !== NONE ? '待看' : ''].filter(Boolean);
+    this.hoverTitle.textContent = `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
+    this.hoverTip.style.borderLeftColor = w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
+    this.hoverNote.textContent = `${fmtDate(w.p.date)}${!this.labels && blink && P[w.code][w.k - 1] ? ' · 当前期标签，上一期影像' : !this.labels && this.scene.aiLeft ? ' · 左图为AI预标' : ''}`;
+    const width = this.hoverTip.offsetWidth, height = this.hoverTip.offsetHeight;
+    const x = clamp(p.mx + 14, 6, Math.max(6, r.width - width - 6));
+    const y = p.my + 14 + height > r.height - 6 ? Math.max(6, p.my - height - 12) : p.my + 14;
+    this.hoverTip.style.left = `${x}px`; this.hoverTip.style.top = `${y}px`;
   }
 }
 // 一组像元的外轮廓（SVG 路径，像元坐标）
@@ -712,6 +738,7 @@ function blankWork() { return { lab: new Uint8Array(N).fill(NONE), uns: new Uint
 async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {}) {
   if (switching && !duringModeSwitch) return;
   if (saving) { toast('正在保存，请稍等再换期。'); return; }
+  scene.setHover(null); $('qualityAiSec').hidden = true;
   const openMode = mode;
   const seq = ++openSeq;
   await flushDraft();
@@ -755,6 +782,7 @@ function setImages() {
   if (blink && prev) va.setImage(prev[imgKind], `上一期 ${fmtDate(prev.date)} · 对照`);
   else va.setImage(p[imgKind], `这一期 ${fmtDate(p.date)}${scene.aiLeft ? ' · AI 原预标' : ''}`);
   vb.setImage(p[imgKind], `这一期 ${fmtDate(p.date)} · 标注`);
+  scene.setHover(scene.hover);
 }
 
 // ---------------------------------------------------------------- 统计和右栏
@@ -836,10 +864,63 @@ function renderPanel() {
   $('whoInput').value = who;
 }
 function qualityFormValue() {
-  return { status: $('qualityStatus').value, reasons: [...document.querySelectorAll('input[name="qualityReason"]:checked')].map(i => i.value), note: $('qualityNote').value.trim().slice(0, 500) };
+  const q = { status: $('qualityStatus').value, reasons: [...document.querySelectorAll('input[name="qualityReason"]:checked')].map(i => i.value), note: $('qualityNote').value.trim().slice(0, 500) };
+  if (W?.qPending?.suggestion) q.suggestion = W.qPending.suggestion;
+  return q;
+}
+function qualitySuggestionFor(w = W) {
+  if (!w) return null;
+  const rec = QAI?.[w.code]?.[w.p.date];
+  if (QAI?.scope === 'full_frame' && rec?.scene_id === w.p.scene_id && Object.hasOwn(QUALITY, rec.status)) {
+    const q = normaliseQuality(rec);
+    return { ...q, version: String(QAI.version || '').slice(0, 120), source: 'full_frame', basis: (Array.isArray(rec.basis) ? rec.basis : []).map(s => String(s).slice(0, 300)).slice(0, 8), metrics: rec.metrics || {}, skip: rec.status === 'no' && rec.skip !== false };
+  }
+  const info = AIX?.[w.code]?.periods?.[w.p.date] || {}, none = Number.isFinite(info.none) ? info.none : null, hazy = !!(w.p.hazy || info.hazy);
+  if (none === null && !hazy) return null;
+  const status = none >= .75 ? 'no' : none >= .15 ? 'partial' : hazy ? 'blurry' : 'yes';
+  const basis = none !== null ? [`地物预标有${Math.round(none * 100)}%格记为看不清（云、云影、缺测合并）`] : [];
+  if (hazy) basis.push('本期有雾标记，需看图确认地物是否仍能辨认');
+  return { status, reasons: hazy ? ['haze'] : [], note: basis.join('；'), version: String(AIX?.version || '').slice(0, 120), source: 'prefill_fallback', basis, metrics: {}, skip: status === 'no' };
+}
+function renderQualitySuggestion() {
+  const sec = $('qualityAiSec'), s = qualitySuggestionFor();
+  sec.hidden = !W || switching;
+  if (sec.hidden) return;
+  sec.classList.toggle('warn', s?.status === 'no' || s?.status === 'partial');
+  $('qualityAiVerdict').textContent = s ? s.status === 'no' ? '整体看不清，建议跳过这一期' : s.status === 'blurry' ? '整体模糊，建议先看整幅' : `建议：${QUALITY[s.status]}` : '暂无整期机器质检，请人工判断。';
+  $('qualityAiNote').textContent = s?.note || '';
+  $('qualityAiBasis').innerHTML = (s?.basis || []).map(b => `<li>${esc(b)}</li>`).join('');
+  const metrics = s?.metrics || {}, parts = [];
+  for (const [key, name] of [['cloud', '云'], ['thin', '薄云'], ['shadow', '云影'], ['missing', '缺测']]) if (Number.isFinite(metrics[key])) parts.push(`${name} ${Math.round(metrics[key] * 1000) / 10}%`);
+  $('qualityAiMetrics').textContent = `${s?.source === 'full_frame' ? '整幅机器质检' : s ? '预标统计建议' : ''}${parts.length ? ' · ' + parts.join(' / ') : ''}`;
+  $('qualityAdoptBtn').disabled = !s || saving || switching;
+  $('qualitySkipBtn').hidden = !s?.skip;
+  $('qualitySkipBtn').disabled = saving || switching;
+}
+function adoptQualitySuggestion() {
+  if (!W || saving || switching || W.mode !== mode) return false;
+  const s = qualitySuggestionFor();
+  if (!s) return false;
+  ops.begin();
+  W.qEditing = true;
+  W.qPending = { status: s.status, reasons: [...s.reasons], note: s.note || s.basis.join('；').slice(0, 500), suggestion: { version: s.version, source: s.source, status: s.status } };
+  ops.n = 1; ops.end(); renderQuality(); err('');
+  $('qualityStatus').focus();
+  toast('建议已填入，请看整幅并确认质量；确认前标注保持原样。');
+  return true;
+}
+async function skipSuggestedQuality() {
+  if (!W || saving || switching || W.mode !== mode || !qualitySuggestionFor()?.skip) return false;
+  if (W.quality?.status !== 'no' || W.qEditing) {
+    if ((!W.qEditing || $('qualityStatus').value !== 'no') && !adoptQualitySuggestion()) return false;
+    confirmQuality();
+  }
+  if (!qualityReady() || W.quality.status !== 'no') return false;
+  return savePeriod(true);
 }
 function renderQuality() {
   if (!W) return;
+  renderQualitySuggestion();
   const q = W.quality, pending = !qualityReady();
   $('qualitySec').classList.toggle('pending', pending);
   $('qualitySummary').textContent = q ? `${pending ? '正在修改 · 上次：' : '已评定：'}${QUALITY[q.status]}${q.reasons.length ? '\n原因：' + q.reasons.map(r => REASONS[r]).join('、') : ''}${q.note ? '\n' + q.note : ''}` : '未评定。先看整幅影像，再确认质量。';
@@ -1117,7 +1198,8 @@ function nextTodo() {
 // ---------------------------------------------------------------- 保存和复核
 let saving = false;
 function renderBusy() {
-  for (const id of ['saveBtn', 'saveNextBtn', 'rvOk', 'rvBack', 'importBtn', 'modeBtn', 'qualityConfirmBtn', 'qualityEditBtn']) $(id).disabled = saving || switching;
+  for (const id of ['saveBtn', 'saveNextBtn', 'rvOk', 'rvBack', 'importBtn', 'modeBtn', 'qualityConfirmBtn', 'qualityEditBtn', 'qualityAdoptBtn', 'qualitySkipBtn']) $(id).disabled = saving || switching;
+  if (!saving && !switching && W) renderQualitySuggestion();
 }
 async function savePeriod(goNext = false) {
   if (!W || saving || switching) return false;
@@ -1210,6 +1292,8 @@ $('fitBtn').onclick = () => scene.fit();
 $('blinkBtn').onclick = () => { blinkPinned = toggle('blinkBtn'); blink = blinkPinned; setImages(); };
 $('qualityEditBtn').onclick = editQuality;
 $('qualityConfirmBtn').onclick = confirmQuality;
+$('qualityAdoptBtn').onclick = adoptQualitySuggestion;
+$('qualitySkipBtn').onclick = () => skipSuggestedQuality().catch(e => err(`保存失败：${e.message}`));
 const qualityChanged = () => { if (!W || saving || switching || W.mode !== mode) return; W.qPending = qualityFormValue(); W.qEditing = true; W.dirty = true; afterEdit(); };
 $('qualityStatus').onchange = qualityChanged;
 $('qualityNote').oninput = qualityChanged;
@@ -1247,6 +1331,7 @@ async function setMode(m) {
   if (saving || switching) { toast('正在保存或切换模式，请稍等。'); return; }
   if (!['demo', 'live'].includes(m) || m === mode) return;
   switching = true; renderBusy();
+  scene.setHover(null); $('qualityAiSec').hidden = true;
   try {
     await flushDraft();
     ++openSeq;
@@ -1295,9 +1380,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 // 本机测试用的入口（只在 localhost 打开时挂上，线上没有）
 if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
-  window.__lc = { get W() { return W; }, get LAT() { return LAT; }, get mode() { return mode; }, get tableReady() { return tableReady; }, get demoRows() { return demoRows; },
+  window.__lc = { get W() { return W; }, get LAT() { return LAT; }, get mode() { return mode; }, get tableReady() { return tableReady; }, get demoRows() { return demoRows; }, get QAI() { return QAI; }, get AIX() { return AIX; },
     scene, ops, va, vb, openPeriod, savePeriod, inheritPrev, resetAi, nextTodo, undo, setBrush, setTool, countsOf, packMap, unpackMap, encodeMap, decodeMap, aiOf, P, drafts, kvKeys, kvDel,
-    trainingMask, maskPng, normaliseQuality, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft };
+    trainingMask, maskPng, normaliseQuality, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft, qualitySuggestionFor, renderQualitySuggestion, adoptQualitySuggestion, skipSuggestedQuality };
 }
 
 // ---------------------------------------------------------------- 启动
@@ -1306,7 +1391,7 @@ async function init() {
   renderPalette(null);
   sites = await loadSites();
   for (const c of SITE_ORDER) P[c] = await loadPeriods(c);
-  AIX = await fetch('prefill_lc/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  [AIX, QAI] = await Promise.all(['prefill_lc/index.json', 'prefill_lc/quality.json'].map(path => fetch(path, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)));
   demoRows = (await kvGet('demo|rows')) || [];
   await loadDraftKeys();
   try { await pullRows(); } catch (e) {
