@@ -3,7 +3,8 @@
 // 一期的标注从哪来（先找到的为准）：这台电脑上没保存的草稿（IndexedDB）→ 数据库 landcover 表里这一期最新的标注 → AI 预标（prefill_lc/）。
 // 保存：正式模式写 landcover 表（kind = label；组长复核 kind = review）；演示模式只存在这台电脑。数据库里还没有 landcover 表时只能用演示模式。
 // 存的格式：data = { v: 'lc1', enc: 'gz' | 'raw', map: base64, meta }；map 解开是 65536 个字节，一个字节一格（行优先）：
-//   低 3 位 = 类别（0 水体 1 植被 2 耕地 3 裸露 4 建成，7 = 看不清），第 4 位 = 拿不准，第 5 位 = 人动过，第 6 位 = 待看（保存时还没看的黄斜线）。
+//   低 3 位 = 类别（0—4，7 = 看不清），bit3 = 拿不准，bit4 = 人动过，bit5 = 待看，bit6 = 云影遮挡，bit7 = 整期质量自动屏蔽（低3位仍为7，旧解码器仍读255）。
+//   整期质量写 meta.quality；旧记录没有此字段时保持未评定。草稿按 demo/live 分开。
 import { append, uuid, clientId } from './api.js';
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION, SITE_ORDER } from './config.js';
 import { loadSites, loadPeriods, fmtDate, fmtTime } from './store.js';
@@ -15,7 +16,9 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const fmtN = n => Number(n || 0).toLocaleString('zh-CN');
 const pct = (a, b) => (b ? `${Math.round((a / b) * 1000) / 10}%` : '—');
 
-const SIZE = 256, N = SIZE * SIZE, NONE = 255, UNSURE = 100;
+const SIZE = 256, N = SIZE * SIZE, NONE = 255, UNSURE = 100, SHADOW = 101;
+const QUALITY = { yes: '清楚', blurry: '整体模糊，但还能认出地物', partial: '局部看不清，其余能标', no: '基本看不清，整期不可判' };
+const REASONS = { cloud: '云', cloud_shadow: '云影', haze: '雾 / 霾', terrain_shadow: '山影 / 阴影', missing: '黑块 / 缺测', stripe: '条纹', brightness: '太亮 / 太暗', blur: '模糊' };
 const SITE_NAME = { ZZ: '株洲南', HY: '衡阳北', SG: '韶关南' };
 const CLS = [
   { v: 0, name: '水体', rgb: [40, 110, 220], key: '1' },
@@ -49,6 +52,7 @@ const drafts = new Set();          // 'code|scene_id'：这台电脑上有没保
 const dataCache = {};              // 记录 id → data（含 map）
 let W = null;                      // 当前这一期的工作副本
 let openSeq = 0;
+let switching = false;
 
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 3200); }
 function err(msg) { $('err').textContent = msg || ''; }
@@ -115,17 +119,21 @@ function b64(bytes) {
 function unb64(s) { const b = atob(s); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
 function packMap(w) {
   const a = new Uint8Array(N);
-  for (let i = 0; i < N; i++) a[i] = (w.lab[i] === NONE ? 7 : w.lab[i]) | (w.uns[i] << 3) | (w.tch[i] << 4) | ((w.todo[i] && !w.tch[i] ? 1 : 0) << 5);
+  for (let i = 0; i < N; i++) a[i] = (w.quality?.status === 'no' || w.shadow?.[i] || w.whole?.[i] || w.lab[i] === NONE ? 7 : w.lab[i]) | (w.uns[i] << 3) | (w.tch[i] << 4) | ((w.todo[i] && !w.tch[i] ? 1 : 0) << 5) | ((w.shadow?.[i] ? 1 : 0) << 6) | ((w.whole?.[i] ? 1 : 0) << 7);
   return a;
 }
 function unpackMap(a) {
-  const lab = new Uint8Array(N), uns = new Uint8Array(N), tch = new Uint8Array(N), todo = new Uint8Array(N);
+  if (a.length !== N) throw new Error('标注格数不对，应为256×256');
+  const lab = new Uint8Array(N), uns = new Uint8Array(N), tch = new Uint8Array(N), todo = new Uint8Array(N), shadow = new Uint8Array(N), whole = new Uint8Array(N);
   for (let i = 0; i < N; i++) {
     const v = a[i] & 7;
-    lab[i] = v === 7 ? NONE : Math.min(v, 4);
+    if (v === 5 || v === 6) throw new Error('标注含不支持的地物类别');
+    shadow[i] = (a[i] >> 6) & 1;
+    whole[i] = (a[i] >> 7) & 1;
+    lab[i] = v === 7 || shadow[i] || whole[i] ? NONE : v;
     uns[i] = (a[i] >> 3) & 1; tch[i] = (a[i] >> 4) & 1; todo[i] = (a[i] >> 5) & 1;
   }
-  return { lab, uns, tch, todo };
+  return { lab, uns, tch, todo, shadow, whole, quality: null };
 }
 async function encodeMap(w) {
   const raw = packMap(w);
@@ -133,8 +141,50 @@ async function encodeMap(w) {
   return z ? { enc: 'gz', map: b64(z) } : { enc: 'raw', map: b64(raw) };
 }
 async function decodeMap(d) {
+  if (!d || d.v !== 'lc1' || !['gz', 'raw'].includes(d.enc) || typeof d.map !== 'string') throw new Error('不是支持的lc1标注文件');
   const bytes = unb64(d.map);
-  return unpackMap(d.enc === 'gz' ? await gunz(bytes) : bytes);
+  const w = unpackMap(d.enc === 'gz' ? await gunz(bytes) : bytes);
+  w.quality = normaliseQuality(d.meta?.quality);
+  w.legacyWhole = !!d.meta?.legacy_whole;
+  migrateWholeMask(w, d.meta?.whole_mask_v);
+  return w;
+}
+
+function migrateWholeMask(w, version) {
+  // 兼容本轮未发布的早期整期no格式：全图255+tch没有逐格自动屏蔽位。
+  // 这类记录只有云影范围可追溯；普通255的原人工范围需重评时重新核对。
+  if (w.quality?.status === 'no' && !version && !w.whole.some(Boolean) && w.lab.every(v => v === NONE) && w.tch.every(Boolean)) {
+    for (let i = 0; i < N; i++) if (!w.shadow[i]) { w.whole[i] = 1; w.tch[i] = 0; }
+    w.legacyWhole = true;
+  }
+}
+
+function normaliseQuality(q) {
+  if (!q || !Object.hasOwn(QUALITY, q.status)) return null;
+  return { status: q.status, reasons: [...new Set((Array.isArray(q.reasons) ? q.reasons : []).filter(r => Object.hasOwn(REASONS, r)))], note: String(q.note || '').slice(0, 500), by: q.by || null, reviewed_at: q.reviewed_at || null };
+}
+function qualityReady(w = W) { return !switching && !!w?.quality && !w.qEditing && (!w.mode || w.mode === mode); }
+function requireQuality() {
+  if (qualityReady()) return true;
+  err('先看整幅影像，确认这一期的质量，再开始标注或保存。');
+  $('qualitySec').scrollIntoView({ block: 'nearest' }); $('qualityStatus').focus();
+  return false;
+}
+function draftKey(key, m = mode) { return `draft|${m}|${key}`; }
+async function loadDraftKeys() {
+  drafts.clear();
+  const m = mode, prefix = `draft|${m}|`;
+  for (const k of await kvKeys()) {
+    if (typeof k !== 'string') continue;
+    if (k.startsWith(prefix)) drafts.add(k.slice(prefix.length));
+    else if (m === 'demo' && /^draft\|(ZZ|HY|SG)\|/.test(k)) drafts.add(k.slice(6)); // 无模式旧草稿只在演示里恢复
+  }
+}
+function trainingMask(w) {
+  const a = new Uint8Array(N).fill(NONE);
+  if (!qualityReady(w) || w.quality.status === 'no') return a;
+  for (let i = 0; i < N; i++) if (!w.shadow[i] && !w.uns[i] && !(w.todo[i] && !w.tch[i]) && w.lab[i] <= 4) a[i] = w.lab[i];
+  return a;
 }
 
 // ---------------------------------------------------------------- 数据库（只读；保存时追加）
@@ -365,6 +415,8 @@ class Viewer {
       const inside = p.x >= 0 && p.y >= 0 && p.x < SIZE && p.y < SIZE;
       const pan = ev.button !== 0 || sc.spaceDown || sc.bare || !W || !inside;
       if (pan) { this.drag = { type: 'pan', start: p, view: { ...sc.view } }; this.updateCursor(p); return; }
+      if (saving || !requireQuality()) return;
+      if (W.quality.status === 'no' && ![NONE, SHADOW].includes(sc.brush)) { err('这一期已记为基本看不清。能判读时先修改质量判断，再标地物。'); return; }
       if (sc.tool === 'lasso') { this.drag = { type: 'lasso', pts: [[p.x, p.y]] }; sc.lasso = this.drag.pts; return; }
       ops.begin();
       if (sc.tool === 'flood') { ops.flood(p.x, p.y); ops.end(); this.drag = null; return; }
@@ -423,7 +475,7 @@ class Viewer {
     const src = this.labels ? w.lab : w.ai.cls;
     const a0 = this.labels ? FILL_ALPHA[sc.fill] : 120;
     if (a0) for (let i = 0; i < N; i++) {
-      const c = RGB[src[i]] || RGB[NONE];
+      const c = this.labels && w.shadow[i] ? [113, 91, 151] : RGB[src[i]] || RGB[NONE];
       let a = a0;
       if (this.labels && sc.onlyTodo && !(w.todo[i] && !w.tch[i])) a = Math.round(a0 * 0.22);
       d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = a;
@@ -444,14 +496,15 @@ class Viewer {
     const col = (r, g, b, a) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
     const src = this.labels ? w.lab : w.ai.cls;
     const outline = this.labels && sc.fill === 2;
-    const EDGE = col(15, 18, 24, 170), YEL = col(255, 214, 0, 235), WHT = col(255, 255, 255, 225);
+    const EDGE = col(15, 18, 24, 170), YEL = col(255, 214, 0, 235), WHT = col(255, 255, 255, 225), VIO = col(196, 181, 253, 240);
     const CC = {}; for (const c of CLS) CC[c.v] = col(c.rgb[0], c.rgb[1], c.rgb[2], 255);
     for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
       const i = y * SIZE + x, v = src[i], base = (y * 4) * S4 + x * 4;
       if (this.labels) {
-        const todo = w.todo[i] && !w.tch[i] && v !== NONE, uns = w.uns[i];
-        if (todo || uns) for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
-          if (todo && (sx + sy) % 4 === 0) u[base + sy * S4 + sx] = YEL;
+        const todo = w.todo[i] && !w.tch[i] && v !== NONE, uns = w.uns[i], shadow = w.shadow[i];
+        if (todo || uns || shadow) for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
+          if (shadow && (sx + sy) % 4 === 0) u[base + sy * S4 + sx] = VIO;
+          else if (todo && (sx + sy) % 4 === 0) u[base + sy * S4 + sx] = YEL;
           else if (uns && (sx - sy + 4) % 4 === 0) u[base + sy * S4 + sx] = WHT;
         }
       }
@@ -551,14 +604,15 @@ const ops = {
   n: 0, spDone: null,
   begin() {
     if (!W) return;
-    W.undo.push({ lab: W.lab.slice(), uns: W.uns.slice(), tch: W.tch.slice(), todo: W.todo.slice(), src: W.src });
+    W.undo.push({ lab: W.lab.slice(), uns: W.uns.slice(), tch: W.tch.slice(), todo: W.todo.slice(), shadow: W.shadow.slice(), whole: W.whole.slice(), legacyWhole: W.legacyWhole, quality: W.quality, qEditing: W.qEditing, qPending: W.qPending, src: W.src });
     if (W.undo.length > 30) W.undo.shift();
     this.n = 0; this.spDone = new Set();
   },
   set(i) {
     const w = W;
+    if (saving || !qualityReady(w) || (w.quality.status === 'no' && ![NONE, SHADOW].includes(scene.brush))) return;
     if (scene.brush === UNSURE) w.uns[i] = 1;
-    else { w.lab[i] = scene.brush; w.uns[i] = 0; }
+    else { w.lab[i] = scene.brush === SHADOW ? NONE : scene.brush; w.shadow[i] = scene.brush === SHADOW ? 1 : 0; w.whole[i] = 0; w.uns[i] = 0; w.todo[i] = 0; }
     w.tch[i] = 1;
     this.n++;
   },
@@ -585,7 +639,7 @@ const ops = {
   // 整片：和点到的那格类别相同、四邻相连的一片
   flood(x, y) {
     if (!W) return;
-    const i0 = Math.floor(y) * SIZE + Math.floor(x), v0 = W.lab[i0];
+    const i0 = Math.floor(y) * SIZE + Math.floor(x), v0 = W.lab[i0], s0 = W.shadow[i0];
     const seen = new Uint8Array(N), st = [i0];
     seen[i0] = 1;
     const hit = [];
@@ -593,7 +647,7 @@ const ops = {
       const i = st.pop(); hit.push(i);
       const cx = i % SIZE;
       for (const j of [i - SIZE, i + SIZE, cx > 0 ? i - 1 : -1, cx < SIZE - 1 ? i + 1 : -1]) {
-        if (j < 0 || j >= N || seen[j] || W.lab[j] !== v0) continue;
+        if (j < 0 || j >= N || seen[j] || W.lab[j] !== v0 || W.shadow[j] !== s0) continue;
         seen[j] = 1; st.push(j);
       }
     }
@@ -625,11 +679,13 @@ const ops = {
   },
 };
 function undo() {
+  if (saving || switching) return;
   if (!W?.undo.length) { toast('没有可以撤销的'); return; }
   const u = W.undo.pop();
-  W.lab.set(u.lab); W.uns.set(u.uns); W.tch.set(u.tch); W.todo.set(u.todo); W.src = u.src;
+  W.lab.set(u.lab); W.uns.set(u.uns); W.tch.set(u.tch); W.todo.set(u.todo); W.shadow.set(u.shadow); W.whole.set(u.whole); W.legacyWhole = u.legacyWhole; W.quality = u.quality; W.qEditing = u.qEditing; W.qPending = u.qPending; W.src = u.src;
   W.dirty = true;
   scene.changed();
+  renderQuality();
   afterEdit();
 }
 let draftTimer = null, listTimer = null;
@@ -643,24 +699,28 @@ function afterEdit() {
 async function saveDraft(w) {
   if (!w || !w.dirty) return;
   const key = `${w.code}|${w.p.scene_id}`;
-  await kvSet(`draft|${key}`, { map: packMap(w), src: w.src, baseId: w.baseId || null, at: new Date().toISOString() });
-  if (!w.dirty) { await kvDel(`draft|${key}`); return; }   // 存草稿的时候正好保存了
-  if (!drafts.has(key)) { drafts.add(key); renderListSoon(); }
+  const dk = draftKey(key, w.mode);
+  await kvSet(dk, { map: packMap(w), quality: w.quality, whole_mask_v: 1, legacyWhole: w.legacyWhole, qEditing: w.qEditing, qPending: w.qPending, src: w.src, baseId: w.baseId || null, at: new Date().toISOString() });
+  if (!w.dirty) { await kvDel(dk); return; }   // 存草稿的时候正好保存了
+  if (mode === w.mode && !drafts.has(key)) { drafts.add(key); renderListSoon(); }
 }
 function renderListSoon() { clearTimeout(listTimer); listTimer = setTimeout(() => { renderSites(); renderList(); }, 250); }
 function flushDraft() { if (W?.dirty) { clearTimeout(draftTimer); return saveDraft(W); } return Promise.resolve(); }
 
 // ---------------------------------------------------------------- 打开一期
-function blankWork() { return { lab: new Uint8Array(N).fill(NONE), uns: new Uint8Array(N), tch: new Uint8Array(N), todo: new Uint8Array(N) }; }
-async function openPeriod(code, k, { fit = false } = {}) {
+function blankWork() { return { lab: new Uint8Array(N).fill(NONE), uns: new Uint8Array(N), tch: new Uint8Array(N), todo: new Uint8Array(N), shadow: new Uint8Array(N), whole: new Uint8Array(N), quality: null }; }
+async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {}) {
+  if (switching && !duringModeSwitch) return;
+  if (saving) { toast('正在保存，请稍等再换期。'); return; }
+  const openMode = mode;
   const seq = ++openSeq;
   await flushDraft();
   const p = P[code][k];
   const key = `${code}|${p.scene_id}`;
   const ai = await aiOf(code, p.date);
   let w = null, src = 'ai', baseId = null, savedRow = null;
-  const dr = await kvGet(`draft|${key}`);
-  if (dr?.map) { w = unpackMap(dr.map); src = dr.src || 'draft'; baseId = dr.baseId; drafts.add(key); }
+  const dr = await kvGet(draftKey(key, openMode)) || (openMode === 'demo' ? await kvGet(`draft|${key}`) : null);
+  if (dr?.map) { w = unpackMap(dr.map); w.quality = normaliseQuality(dr.quality); w.legacyWhole = dr.legacyWhole; migrateWholeMask(w, dr.whole_mask_v); w.qEditing = dr.qEditing; w.qPending = dr.qPending; src = dr.src || 'draft'; baseId = dr.baseId; drafts.add(key); }
   else {
     drafts.delete(key);
     savedRow = LAT[key]?.label || null;
@@ -673,9 +733,9 @@ async function openPeriod(code, k, { fit = false } = {}) {
     if (ai) { w.lab.set(ai.cls); w.todo.set(ai.unc); }
     src = 'ai';
   }
-  if (seq !== openSeq) return;
+  if (seq !== openSeq || openMode !== mode) return;
   const sameSite = W && W.code === code;
-  W = { ...w, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null };
+  W = { ...w, mode: openMode, qEditing: w.qEditing ?? !w.quality, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null };
   scene.rail = sites[code].railway?.lines || [];
   scene.jumpAt = -1; scene.flash = null;
   setImages();
@@ -687,12 +747,12 @@ async function openPeriod(code, k, { fit = false } = {}) {
   renderSites();
   renderList();
 }
-let imgKind = 'tc', blink = false;
+let imgKind = 'tc', blink = false, blinkPinned = false;
 function setImages() {
   if (!W) return;
   const { code, k, p } = W;
   const prev = P[code][k - 1];
-  if (blink && prev) va.setImage(prev[imgKind], `上一期 ${fmtDate(prev.date)}（按住 B 时）`);
+  if (blink && prev) va.setImage(prev[imgKind], `上一期 ${fmtDate(prev.date)} · 对照`);
   else va.setImage(p[imgKind], `这一期 ${fmtDate(p.date)}${scene.aiLeft ? ' · AI 原预标' : ''}`);
   vb.setImage(p[imgKind], `这一期 ${fmtDate(p.date)} · 标注`);
 }
@@ -700,16 +760,17 @@ function setImages() {
 // ---------------------------------------------------------------- 统计和右栏
 function countsOf(w) {
   const n = [0, 0, 0, 0, 0, 0];
-  let uns = 0, tch = 0, todo = 0, edited = 0;
+  let uns = 0, tch = 0, todo = 0, edited = 0, shadow = 0;
   for (let i = 0; i < N; i++) {
     const v = w.lab[i];
     n[v === NONE ? 5 : v]++;
     if (w.uns[i]) uns++;
+    if (w.shadow[i]) shadow++;
     if (w.tch[i]) tch++;
     if (w.todo[i] && !w.tch[i] && v !== NONE) todo++;
     if (w.ai && w.ai.cls[i] !== v) edited++;
   }
-  return { n, uns, tch, todo, edited };
+  return { n, uns, tch, todo, edited, shadow };
 }
 function renderCounts() {
   if (!W) return;
@@ -720,13 +781,15 @@ function renderCounts() {
       + `<span class="num">${(frac * 100).toFixed(1)}%</span></div>`;
   }).join('');
   $('pCount').innerHTML = `<span class="todo"><b>待看 ${fmtN(c.todo)}</b> 格</span><span class="uns">拿不准 ${fmtN(c.uns)}</span>`
+    + `<span>云影遮挡 ${fmtN(c.shadow)} 格（${pct(c.shadow, N)}）</span>`
     + `<span class="tiny">比 AI 预标改了 ${fmtN(c.edited)} 格 · 你动过 ${fmtN(c.tch)} 格</span>`;
   renderPalette(c);
 }
 function renderPalette(c) {
   const valid = c ? N - c.n[5] : 0;
   const items = [...CLS.map((k, j) => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (j < 5 ? pct(c.n[j], valid) : pct(c.n[5], N)) : '' })),
-    { v: UNSURE, name: '拿不准', key: '7', cls: 'lc-unsure', pct: c ? fmtN(c.uns) : '' }];
+    { v: UNSURE, name: '拿不准', key: '7', cls: 'lc-unsure', pct: c ? fmtN(c.uns) : '' },
+    { v: SHADOW, name: '云影', key: '8', cls: 'lc-shadow', pct: c ? pct(c.shadow, N) : '' }];
   $('palette').innerHTML = items.map(t => `<button data-v="${t.v}" class="${scene.brush === t.v ? 'on' : ''}" title="快捷键 ${t.key}"><i class="sw ${t.cls || ''}" style="${t.sw || ''}"></i>${t.name}<kbd>${t.key}</kbd><span class="pct">${t.pct}</span></button>`).join('');
   $('palette').querySelectorAll('button').forEach(b => { b.onclick = () => setBrush(Number(b.dataset.v)); });
 }
@@ -754,6 +817,7 @@ function renderPanel() {
   if (info.none != null) tags.push(`看不清 ${Math.round(info.none * 100)}%`);
   $('pTags').innerHTML = tags.map(t => `<span class="badge${t.startsWith('★') ? ' warn' : ''}">${esc(t)}</span>`).join('');
   renderSrc();
+  renderQuality();
   renderCounts();
   const banner = [];
   if (tableReady === false) banner.push('数据库里还没有地物标注的表（landcover），现在只能用演示模式：标注只存在这台电脑。组长在 Supabase 运行 supabase_landcover.sql 后刷新，就能用正式模式。');
@@ -766,10 +830,123 @@ function renderPanel() {
     + (rules ? `<br>按这一期光谱和多年用途改过的：${esc(rules)}。` : '')
     + (info.flick ? `<br>单期跳变清理 ${fmtN(info.flick)} 格（前后两期一致、只有这一期不同，改成前后的类别，标成拿不准）。` : '')
     + (info.sp ? `<br>超像素统一 ${fmtN(info.sp)} 格（这一期共 ${fmtN(info.nsp)} 块）。` : '')
-    + `<br><span class="tiny">${esc(AIX?.note || '')}。底子是 9 月的 Swin 分割模型，它在旧五类标签上训练，旧标签的毛病会带过来（村里的树标成建成、沙洲标成建成、窄路断续），规则只纠正了一部分。</span>`;
+    + `<br><span class="tiny">${esc(AIX?.note || '')}。当前预标主要依据本期光谱、多年用途及道路铁路位置；9月Swin模型只作兜底。预标仍需逐期看图核对，尤其注意村内树木、沙洲和窄路。</span>`;
   $('modeNote').innerHTML = mode === 'demo' ? '演示模式：保存、复核都只存在这台电脑，不写数据库。右上角可以换成正式模式。'
     : '正式模式：保存会把这一期写进数据库（landcover 表），旧版本保留，同一期取最新一条。';
   $('whoInput').value = who;
+}
+function qualityFormValue() {
+  return { status: $('qualityStatus').value, reasons: [...document.querySelectorAll('input[name="qualityReason"]:checked')].map(i => i.value), note: $('qualityNote').value.trim().slice(0, 500) };
+}
+function renderQuality() {
+  if (!W) return;
+  const q = W.quality, pending = !qualityReady();
+  $('qualitySec').classList.toggle('pending', pending);
+  $('qualitySummary').textContent = q ? `${pending ? '正在修改 · 上次：' : '已评定：'}${QUALITY[q.status]}${q.reasons.length ? '\n原因：' + q.reasons.map(r => REASONS[r]).join('、') : ''}${q.note ? '\n' + q.note : ''}` : '未评定。先看整幅影像，再确认质量。';
+  $('qualityForm').hidden = !pending;
+  $('qualityEditBtn').hidden = pending;
+  const form = W.qPending || q;
+  $('qualityStatus').value = form?.status || '';
+  $('qualityNote').value = form?.note || '';
+  document.querySelectorAll('input[name="qualityReason"]').forEach(i => { i.checked = !!form?.reasons?.includes(i.value); });
+  $('inheritBtn').disabled = $('resetBtn').disabled = pending || q?.status === 'no';
+}
+function editQuality() {
+  if (!W || saving || switching || W.mode !== mode) return;
+  ops.begin(); W.qEditing = true; W.qPending = W.quality ? { ...W.quality, reasons: [...W.quality.reasons] } : null; ops.n = 1; ops.end();
+  renderQuality(); scene.fit(); $('qualityStatus').focus();
+}
+function confirmQuality() {
+  if (!W || saving || switching || W.mode !== mode) return;
+  const q = qualityFormValue();
+  if (!Object.hasOwn(QUALITY, q.status)) { err('请选择整期影像质量。'); return; }
+  if (q.status !== 'yes' && !q.reasons.length && !q.note) { err('请选影响原因，或补充一句说明。'); return; }
+  ops.begin();
+  let restored = false;
+  if (q.status === 'no') {
+    for (let i = 0; i < N; i++) {
+      if (!(W.shadow[i] || (W.lab[i] === NONE && W.tch[i]))) { W.whole[i] = 1; W.tch[i] = 0; }
+      W.lab[i] = NONE; W.uns[i] = 0; W.todo[i] = 0;
+    }
+  } else if (W.whole.some(Boolean)) {
+    for (let i = 0; i < N; i++) if (W.whole[i]) {
+      W.lab[i] = W.ai?.cls[i] ?? NONE; W.todo[i] = W.ai?.unc[i] ?? 0; W.uns[i] = 0; W.tch[i] = 0; W.whole[i] = 0;
+    }
+    restored = true;
+  }
+  W.quality = { ...q, by: who || null, reviewed_at: new Date().toISOString() };
+  W.qEditing = false; W.qPending = null;
+  ops.n = 1; ops.end(); renderQuality(); err('');
+  if (restored && W.legacyWhole) { err('旧整期不可判记录未区分普通人工遮挡。已保留云影、恢复其余预标；请重新核对“看不清”范围。'); W.legacyWhole = false; }
+  toast(q.status === 'no' ? '已记录整期不可判，训练掩膜全部为255；可撤销或修改质量。' : restored ? `整期屏蔽已撤，人工遮挡保留，其余恢复${W.ai ? '本期AI预标' : '空白'}。请重新检查后保存。` : q.status === 'partial' ? '质量已确认。用云影或看不清标出遮挡范围，再保存。' : '质量已确认，可以开始标注。');
+}
+function validateWork(w = W) {
+  if (!requireQuality()) return false;
+  if (w.quality.status === 'partial' && countsOf(w).n[5] === 0) { err('局部看不清：请先用“云影 8”或“看不清 6”涂出遮挡范围。'); return false; }
+  return true;
+}
+async function payloadOf(w) {
+  const c = countsOf(w), quality = w.quality, from = w.src, by = who || null, enc = await encodeMap(w);
+  const meta = { n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, cloud_shadow: c.shadow, whole_mask_v: 1, legacy_whole: !!w.legacyWhole, quality, ai: AIX?.version || null, from, by, date: w.p.date };
+  return { v: 'lc1', enc: enc.enc, map: enc.map, meta };
+}
+function download(blob, name) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function maskPng(mask) {
+  // 真正的8位单通道PNG，避免canvas输出RGBA掩膜。
+  const raw = new Uint8Array(N + SIZE);
+  for (let y = 0; y < SIZE; y++) raw.set(mask.subarray(y * SIZE, (y + 1) * SIZE), y * (SIZE + 1) + 1);
+  const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'));
+  const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+  const chunk = (name, data) => {
+    const out = new Uint8Array(data.length + 12), view = new DataView(out.buffer);
+    view.setUint32(0, data.length);
+    for (let i = 0; i < 4; i++) out[4 + i] = name.charCodeAt(i);
+    out.set(data, 8);
+    let crc = 0xffffffff;
+    for (let i = 4; i < out.length - 4; i++) { crc ^= out[i]; for (let b = 0; b < 8; b++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
+    view.setUint32(out.length - 4, (crc ^ 0xffffffff) >>> 0);
+    return out;
+  };
+  const header = new Uint8Array(13), view = new DataView(header.buffer);
+  view.setUint32(0, SIZE); view.setUint32(4, SIZE); header[8] = 8; // color type 0，8位灰度
+  return new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', compressed), chunk('IEND', new Uint8Array())], { type: 'image/png' });
+}
+async function exportLabel(maskOnly = false) {
+  if (!W || !validateWork()) return;
+  const w = W, name = `${w.code}_${w.p.date}_landcover`;
+  if (!maskOnly) {
+    const data = await payloadOf(w);
+    download(new Blob([JSON.stringify({ site: w.code, scene_id: w.p.scene_id, data }, null, 2)], { type: 'application/json' }), `${name}.json`);
+  } else {
+    const mask = trainingMask(w);
+    if (typeof CompressionStream !== 'undefined') download(await maskPng(mask), `${name}_mask.png`);
+    else {
+      const lines = []; for (let y = 0; y < SIZE; y++) lines.push(mask.subarray(y * SIZE, (y + 1) * SIZE).join(','));
+      download(new Blob([lines.join('\n')], { type: 'text/csv' }), `${name}_mask.csv`);
+    }
+    toast('已导出掩膜：地物0—4；云影、看不清、拿不准、未查看的待看格为255。');
+  }
+}
+async function importLabel(file) {
+  if (!W || !file || saving || switching || W.mode !== mode) return;
+  const w = W;
+  try {
+    if (file.size > 250000) throw new Error('标注文件过大');
+    const obj = JSON.parse(await file.text()), data = obj.data || obj;
+    if ((obj.site && obj.site !== w.code) || (obj.scene_id && obj.scene_id !== w.p.scene_id) || (data.meta?.date && data.meta.date !== w.p.date)) throw new Error('这份标注属于其他测点或日期，请先打开对应期次');
+    const imported = await decodeMap(data);
+    if (W !== w || switching || saving || w.mode !== mode) throw new Error('期次或模式已切换，请在对应期次重新导入');
+    ops.begin();
+    for (const k of ['lab', 'uns', 'tch', 'todo', 'shadow', 'whole']) w[k].set(imported[k]);
+    w.legacyWhole = imported.legacyWhole;
+    w.quality = imported.quality; w.qEditing = !w.quality; w.qPending = null;
+    if (w.quality?.status === 'no') { w.lab.fill(NONE); w.uns.fill(0); w.todo.fill(0); }
+    w.src = 'import'; ops.n = 1; ops.end(); renderQuality(); err('');
+    toast(w.quality ? '已导入为本机草稿，检查后再保存。' : '已导入旧标注，尚无整期质量；请先补评。');
+  } catch (e) { err(`导入失败：${e.message}`); }
 }
 function renderReview() {
   if (!W) return;
@@ -814,7 +991,8 @@ function renderList() {
     if (y !== lastY) { html += `<div class="grp">${y} 年</div>`; lastY = y; }
     const st = stateOf(site, p), info = AIX?.[site]?.periods?.[p.date] || {};
     const lab = LAT[`${site}|${p.scene_id}`]?.label;
-    const sub = lab ? `${esc(lab.meta?.by || '没留名')} · 改 ${fmtN(lab.meta?.edited)} 格${lab.meta?.todo ? ` · 留黄 ${fmtN(lab.meta.todo)}` : ''}`
+    const q = normaliseQuality(lab?.meta?.quality);
+    const sub = lab ? `${esc(lab.meta?.by || '没留名')} · ${q ? QUALITY[q.status] : '质量未评'} · 改 ${fmtN(lab.meta?.edited)} 格${lab.meta?.todo ? ` · 留黄 ${fmtN(lab.meta.todo)}` : ''}`
       : `AI 拿不准 ${info.unc != null ? Math.round(info.unc * 100) : '—'}% · 看不清 ${info.none != null ? Math.round(info.none * 100) : '—'}%`;
     html += `<button data-k="${k}" class="${W && W.code === site && W.k === k ? 'cur' : ''}"><span class="t">${fmtDate(p.date).slice(5)}${anchors.has(p.date) ? '<span class="star">★</span>' : ''}${p.hazy ? ' · 雾' : ''}</span>`
       + `<span class="st ${st}" title="${ST_TITLE[st]}">${ST_TEXT[st]}</span><small>${sub}</small></button>`;
@@ -825,6 +1003,7 @@ function renderList() {
   if (c) c.scrollIntoView({ block: 'nearest' });
 }
 function setSite(c) {
+  if (switching || saving) return;
   site = c;
   try { localStorage.setItem(SITE_KEY, c); } catch { /* ignore */ }
   renderSites(); renderList();
@@ -832,7 +1011,7 @@ function setSite(c) {
   if (!W || W.code !== c) openPeriod(c, first.k, { fit: true });
 }
 function step(dir) {
-  if (!W) return;
+  if (!W || switching) return;
   const list = periodsShown(W.code);
   let target = null;
   if (dir > 0) target = list.find(x => x.k > W.k); else target = [...list].reverse().find(x => x.k < W.k);
@@ -842,7 +1021,8 @@ function step(dir) {
 
 // ---------------------------------------------------------------- 整期操作
 async function inheritPrev() {
-  if (!W) return;
+  if (!W || saving || !requireQuality() || W.quality.status === 'no') return;
+  const w = W;
   const { code, k } = W;
   let j = -1;
   for (let q = k - 1; q >= 0; q--) if (LAT[`${code}|${P[code][q].scene_id}`]?.label) { j = q; break; }
@@ -850,12 +1030,14 @@ async function inheritPrev() {
   const pp = P[code][j];
   let prev;
   try { prev = await decodeMap(await labelData(LAT[`${code}|${pp.scene_id}`].label)); } catch (e) { err(`读不到 ${pp.date} 的标注：${e.message}`); return; }
-  const [aiPrev, cd] = await Promise.all([aiOf(code, pp.date), cdMap(code, W.p.date)]);
+  const [aiPrev, cd] = await Promise.all([aiOf(code, pp.date), cdMap(code, w.p.date)]);
+  if (W !== w || saving || !qualityReady(w)) return;
   const ai = W.ai;
   if (!ai) { toast('这一期没有 AI 预标，不能按“AI 认为变了”沿用'); return; }
   ops.begin();
   let nChg = 0, nCopy = 0;
   for (let i = 0; i < N; i++) {
+    if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue; // 当前期人标遮挡不能被上一期/预标填补
     const a1 = ai.cls[i], a0 = aiPrev ? aiPrev.cls[i] : NONE, h0 = prev.lab[i];
     W.tch[i] = 0; W.uns[i] = 0;
     if (a1 === NONE) { W.lab[i] = NONE; W.todo[i] = 0; continue; }
@@ -869,20 +1051,25 @@ async function inheritPrev() {
   toast(`已沿用 ${fmtDate(pp.date)}：照搬 ${fmtN(nCopy)} 格；AI 认为变了的 ${fmtN(nChg)} 格换成这一期的预标并标黄${cd ? '（含变化检测标了变化的格）' : ''}。Ctrl+Z 可以撤销`);
 }
 function resetAi() {
+  if (!W || saving || !requireQuality() || W.quality.status === 'no') return;
   if (!W?.ai) { toast('这一期没有 AI 预标'); return; }
   ops.begin();
-  W.lab.set(W.ai.cls); W.uns.fill(0); W.tch.fill(0); W.todo.set(W.ai.unc);
+  for (let i = 0; i < N; i++) {
+    if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue;
+    W.lab[i] = W.ai.cls[i]; W.uns[i] = 0; W.tch[i] = 0; W.todo[i] = W.ai.unc[i];
+  }
   ops.n = 1; W.src = 'ai';
   ops.end();
-  toast('已恢复成 AI 预标（Ctrl+Z 可以撤销）');
+  toast('已恢复 AI 预标，保留这一期人标的遮挡范围（Ctrl+Z 可以撤销）');
 }
 async function dropDraft() {
-  if (!W) return;
+  if (!W || saving || switching) return;
   const key = `${W.code}|${W.p.scene_id}`;
   if (!drafts.has(key) && !W.dirty) { toast('这一期在这台电脑上没有没保存的修改'); return; }
   clearTimeout(draftTimer);
   W.dirty = false;
-  await kvDel(`draft|${key}`);
+  await kvDel(draftKey(key, W.mode));
+  if (W.mode === 'demo') await kvDel(`draft|${key}`);
   drafts.delete(key);
   const { code, k } = W;
   W = null;
@@ -929,17 +1116,20 @@ function nextTodo() {
 
 // ---------------------------------------------------------------- 保存和复核
 let saving = false;
+function renderBusy() {
+  for (const id of ['saveBtn', 'saveNextBtn', 'rvOk', 'rvBack', 'importBtn', 'modeBtn', 'qualityConfirmBtn', 'qualityEditBtn']) $(id).disabled = saving || switching;
+}
 async function savePeriod(goNext = false) {
-  if (!W || saving) return false;
+  if (!W || saving || switching) return false;
+  if (W.mode !== mode || !validateWork()) return false;
   if (mode === 'live' && !tableReady) { err('数据库里还没有 landcover 表，正式模式存不了。先用演示模式，或请组长运行 supabase_landcover.sql。'); return false; }
   const w = W, key = `${w.code}|${w.p.scene_id}`;
+  let completed = false;
   saving = true;
-  $('saveBtn').disabled = $('saveNextBtn').disabled = true;
+  renderBusy();
   try {
     const c = countsOf(w);
-    const enc = await encodeMap(w);
-    const meta = { n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, ai: AIX?.version || null, from: w.src, by: who || null, date: w.p.date };
-    const data = { v: 'lc1', enc: enc.enc, map: enc.map, meta };
+    const data = await payloadOf(w), meta = data.meta;
     if (JSON.stringify(data).length > 110000) { err('这一期涂得太零碎，记录太大存不下（上限约 11 万字符）。'); return false; }
     const row = { site: w.code, scene_id: w.p.scene_id, kind: 'label', data, app_version: APP_VERSION };
     let saved, queued = false;
@@ -957,30 +1147,34 @@ async function savePeriod(goNext = false) {
     }
     clearTimeout(draftTimer);
     w.dirty = false; w.src = 'saved'; w.baseId = saved.id; w.fromDraft = false;
-    await kvDel(`draft|${key}`);
+    await kvDel(draftKey(key, w.mode));
+    if (w.mode === 'demo') await kvDel(`draft|${key}`);
     drafts.delete(key);
     recompute();
     toast(`已保存 ${fmtDate(w.p.date)}${mode === 'demo' ? '（演示模式，只存在这台电脑）' : '到数据库'}${c.todo ? `；还有 ${fmtN(c.todo)} 格待看没动过，已一并记下` : ''}${queued ? '；网络不稳，已先存在本机，联网后自动上传' : ''}`);
     renderPanel(); renderSites(); renderList();
-    if (goNext) step(1);
+    completed = true;
     return true;
   } catch (e) {
     err(`保存失败：${e.message}`);
     return false;
   } finally {
     saving = false;
-    $('saveBtn').disabled = $('saveNextBtn').disabled = false;
+    renderBusy();
+    if (completed && goNext) step(1);
   }
 }
 async function review(decision) {
-  if (!W) return;
+  if (!W || saving || switching || W.mode !== mode) return;
   const key = `${W.code}|${W.p.scene_id}`, s = LAT[key];
   if (!s?.label) return;
+  if (decision === 'confirmed' && (!normaliseQuality(s.label.meta?.quality) || W.dirty || W.qEditing)) { err('请先补评整期质量并保存当前修改，再通过这份标注。'); return; }
   if (mode === 'live' && !tableReady) { err('数据库里还没有 landcover 表，正式模式存不了。'); return; }
   const comment = $('rvText').value.trim();
   if (decision === 'returned' && !comment) { err('退回请写一句原因。'); return; }
   const meta = { label_id: s.label.id, decision, comment: comment || null, by: who || null };
   const row = { site: W.code, scene_id: W.p.scene_id, kind: 'review', data: { meta }, app_version: APP_VERSION };
+  saving = true; renderBusy();
   try {
     if (mode === 'live') { const res = await append(TABLE, row); liveRows.push({ ...res.row, meta, _fresh: true }); }
     else { demoRows.push({ ...row, id: uuid(), created_at: new Date().toISOString(), client_id: clientId(), meta, _demo: true }); await kvSet('demo|rows', demoRows); }
@@ -988,6 +1182,7 @@ async function review(decision) {
     recompute(); renderReview(); renderSites(); renderList();
     toast(decision === 'confirmed' ? '已记为组长通过' : '已退回');
   } catch (e) { err(`保存失败：${e.message}`); }
+  finally { saving = false; renderBusy(); }
 }
 
 // ---------------------------------------------------------------- 按钮和快捷键
@@ -1011,6 +1206,18 @@ $('railBtn').onclick = () => { scene.showRail = toggle('railBtn'); scene.render(
 $('gridBtn').onclick = () => { scene.grid = toggle('gridBtn'); scene.render(); };
 $('bareBtn').onclick = () => toggleBare();
 $('jumpBtn').onclick = nextTodo;
+$('fitBtn').onclick = () => scene.fit();
+$('blinkBtn').onclick = () => { blinkPinned = toggle('blinkBtn'); blink = blinkPinned; setImages(); };
+$('qualityEditBtn').onclick = editQuality;
+$('qualityConfirmBtn').onclick = confirmQuality;
+const qualityChanged = () => { if (!W || saving || switching || W.mode !== mode) return; W.qPending = qualityFormValue(); W.qEditing = true; W.dirty = true; afterEdit(); };
+$('qualityStatus').onchange = qualityChanged;
+$('qualityNote').oninput = qualityChanged;
+document.querySelectorAll('input[name="qualityReason"]').forEach(i => { i.onchange = qualityChanged; });
+$('exportBtn').onclick = () => exportLabel().catch(e => err(`导出失败：${e.message}`));
+$('maskExportBtn').onclick = () => exportLabel(true).catch(e => err(`导出失败：${e.message}`));
+$('importBtn').onclick = () => { if (!saving && !switching && W?.mode === mode) $('importFile').click(); };
+$('importFile').onchange = async e => { await importLabel(e.target.files?.[0]); e.target.value = ''; };
 $('saveBtn').onclick = () => savePeriod(false);
 $('saveNextBtn').onclick = () => savePeriod(true);
 $('prevBtn').onclick = () => step(-1);
@@ -1029,6 +1236,7 @@ $('guideBtn').onclick = () => $('guideModal').classList.add('show');
 $('guideClose').onclick = () => $('guideModal').classList.remove('show');
 function renderMode() { const b = $('modeBtn'); b.className = `mode-btn ${mode}`; b.textContent = mode === 'live' ? '正式模式' : '演示模式'; }
 $('modeBtn').onclick = () => {
+  if (saving || switching) return;
   if (mode === 'live') { setMode('demo'); toast('已切换到演示模式：保存只存在这台电脑'); return; }
   if (tableReady === false) { toast('数据库里还没有 landcover 表，暂时不能用正式模式'); return; }
   $('modeModal').classList.add('show');
@@ -1036,11 +1244,18 @@ $('modeBtn').onclick = () => {
 $('modeCancel').onclick = () => $('modeModal').classList.remove('show');
 $('modeOk').onclick = () => { $('modeModal').classList.remove('show'); setMode('live'); toast('已切换到正式模式：保存会写入数据库'); };
 async function setMode(m) {
-  await flushDraft();
-  mode = m;
-  try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
-  recompute(); renderMode(); renderSites(); renderList();
-  if (W) { const { code, k } = W; W = null; openPeriod(code, k); }
+  if (saving || switching) { toast('正在保存或切换模式，请稍等。'); return; }
+  if (!['demo', 'live'].includes(m) || m === mode) return;
+  switching = true; renderBusy();
+  try {
+    await flushDraft();
+    ++openSeq;
+    mode = m;
+    await loadDraftKeys();
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
+    recompute(); renderMode(); renderSites(); renderList();
+    if (W) { const { code, k } = W; W = null; await openPeriod(code, k, { duringModeSwitch: true }); }
+  } finally { switching = false; renderBusy(); if (W) renderQuality(); }
 }
 
 window.addEventListener('keydown', e => {
@@ -1056,6 +1271,7 @@ window.addEventListener('keydown', e => {
   const cls = CLS.find(c => c.key === k);
   if (cls) { setBrush(cls.v); return; }
   if (k === '7') { setBrush(UNSURE); return; }
+  if (k === '8') { setBrush(SHADOW); return; }
   if (k === 's') setTool('sp');
   else if (k === 'd') setTool('brush');
   else if (k === 'f') setTool('flood');
@@ -1073,14 +1289,15 @@ window.addEventListener('keydown', e => {
   else if (k === 'v') toggleBare();
   else if (k === 'b' && !e.repeat && !blink) { blink = true; setImages(); }
 });
-window.addEventListener('keyup', e => { if (e.key.toLowerCase() === 'b' && blink) { blink = false; setImages(); } });
+window.addEventListener('keyup', e => { if (e.key.toLowerCase() === 'b' && blink) { blink = blinkPinned; setImages(); } });
 window.addEventListener('beforeunload', () => { if (W?.dirty) saveDraft(W); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
 
 // 本机测试用的入口（只在 localhost 打开时挂上，线上没有）
 if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
   window.__lc = { get W() { return W; }, get LAT() { return LAT; }, get mode() { return mode; }, get tableReady() { return tableReady; }, get demoRows() { return demoRows; },
-    scene, ops, va, vb, openPeriod, savePeriod, inheritPrev, resetAi, nextTodo, undo, setBrush, setTool, countsOf, packMap, unpackMap, encodeMap, decodeMap, aiOf, P, drafts, kvKeys, kvDel };
+    scene, ops, va, vb, openPeriod, savePeriod, inheritPrev, resetAi, nextTodo, undo, setBrush, setTool, countsOf, packMap, unpackMap, encodeMap, decodeMap, aiOf, P, drafts, kvKeys, kvDel,
+    trainingMask, maskPng, normaliseQuality, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft };
 }
 
 // ---------------------------------------------------------------- 启动
@@ -1091,12 +1308,12 @@ async function init() {
   for (const c of SITE_ORDER) P[c] = await loadPeriods(c);
   AIX = await fetch('prefill_lc/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
   demoRows = (await kvGet('demo|rows')) || [];
-  for (const k of await kvKeys()) if (typeof k === 'string' && k.startsWith('draft|')) drafts.add(k.slice(6));
+  await loadDraftKeys();
   try { await pullRows(); } catch (e) {
     $('qList').innerHTML = `<div class="err" style="padding:8px">读不到数据库：${esc(e.message)}。请检查网络后刷新。</div>`;
     return;
   }
-  if (tableReady === false && mode === 'live') { mode = 'demo'; renderMode(); }
+  if (tableReady === false && mode === 'live') { mode = 'demo'; await loadDraftKeys(); renderMode(); }
   $('updated').textContent = `数据更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
   recompute();
   renderSites();

@@ -61,6 +61,8 @@
       <button class="tbtn on" id="gridBtn" title="G：放大后显示 10 米格线">格线</button>
       <button class="tbtn" id="bareBtn" title="V：只看原图，再按一次恢复">原图</button>
       <button class="tbtn" id="jumpBtn" title="J：放大到下一片还要看的地方">下一片待看 J</button>
+      <button class="tbtn" id="fitBtn">整幅影像</button>
+      <button class="tbtn" id="blinkBtn" title="B：左图对照上一期">上一期对照 B</button>
     </div>
     <div class="lc-palette" id="palette"></div>
     <div class="rv-pair"><div class="vbox" id="vA"></div><div class="vbox" id="vB"></div></div>
@@ -68,6 +70,7 @@
       <span>左：只看影像（按住 B 换成上一期）</span><span>右：影像 + 标注</span>
       <span><i class="lg hatch-y"></i>待看（AI 拿不准，或沿用时 AI 认为变了）</span>
       <span><i class="lg hatch-w"></i>标了“拿不准”</span><span><i class="lg rail"></i>铁路参考线</span>
+      <span><i class="lg hatch-shadow"></i>云影遮挡（训练时忽略）</span>
       <span class="rv-hint">滚轮放大 · 右键拖 / 按住空格拖动</span>
     </div>
   </section>
@@ -76,7 +79,7 @@
   <aside class="rv-panel" id="panel">
     <div class="rv-empty" id="emptyMsg">
       <h3>地物精标台</h3>
-      <p class="muted">逐期标 5 类地物：水体、植被、耕地、裸露、建成，再加“看不清”。每期都有 AI 预标打底，黄斜线是 AI 拿不准的地方。</p>
+      <p class="muted">先判断整期影像质量，再逐期标 5 类地物。云影遮挡和其他看不清的地方单独标记；每期都有 AI 预标打底。</p>
       <p class="tiny">左边选一期开始。先看右上角“标注说明”。</p>
     </div>
     <div id="perPanel" hidden>
@@ -86,6 +89,35 @@
         <div class="lb-note" id="pSrc"></div>
       </div>
       <div class="lc-banner" id="banner" hidden></div>
+      <section class="lb-sec lc-quality" id="qualitySec" aria-labelledby="qualityTitle">
+        <h4 id="qualityTitle">第一步 · 整期影像质量</h4>
+        <p class="tiny" id="qualitySummary"></p>
+        <button class="btn sm ghost" id="qualityEditBtn" hidden>修改质量判断</button>
+        <div id="qualityForm">
+          <label for="qualityStatus">先看整幅，再选这一期的质量</label>
+          <select class="input" id="qualityStatus">
+            <option value="">尚未评定，请选择</option>
+            <option value="yes">清楚</option>
+            <option value="blurry">整体模糊，但还能认出地物</option>
+            <option value="partial">局部看不清，其余能标</option>
+            <option value="no">基本看不清，整期不可判</option>
+          </select>
+          <fieldset class="lc-reasons"><legend>影响原因（可多选）</legend>
+            <label><input type="checkbox" name="qualityReason" value="cloud">云</label>
+            <label><input type="checkbox" name="qualityReason" value="cloud_shadow">云影</label>
+            <label><input type="checkbox" name="qualityReason" value="haze">雾 / 霾</label>
+            <label><input type="checkbox" name="qualityReason" value="terrain_shadow">山影 / 阴影</label>
+            <label><input type="checkbox" name="qualityReason" value="missing">黑块 / 缺测</label>
+            <label><input type="checkbox" name="qualityReason" value="stripe">条纹</label>
+            <label><input type="checkbox" name="qualityReason" value="brightness">太亮 / 太暗</label>
+            <label><input type="checkbox" name="qualityReason" value="blur">模糊</label>
+          </fieldset>
+          <textarea class="input" id="qualityNote" maxlength="500" placeholder="补充说明（其他原因或局部位置）" aria-label="影像质量补充说明"></textarea>
+          <p class="tiny">局部看不清：确认后用“云影 8”或“看不清 6”涂出范围。基本看不清：确认后整期记为看不清，可撤销。</p>
+          <button class="btn primary" id="qualityConfirmBtn">确认质量，开始标注</button>
+        </div>
+      </section>
+      <h4 class="lc-step">第二步 · 地物与遮挡范围</h4>
       <div class="lc-bars" id="pBars"></div>
       <div class="lb-count" id="pCount"></div>
       <div class="lb-actions">
@@ -94,6 +126,12 @@
           <button class="btn sm" id="saveBtn" title="Ctrl+S">只保存</button>
           <button class="btn sm" id="prevBtn" title="←">上一期</button>
           <button class="btn sm" id="nextBtn" title="→">下一期</button>
+        </div>
+        <div class="lb-row">
+          <button class="btn sm ghost" id="exportBtn">导出标注 JSON</button>
+          <button class="btn sm ghost" id="maskExportBtn" title="256×256 灰度 PNG；地物0—4，遮挡和拿不准为255">导出训练掩膜</button>
+          <button class="btn sm ghost" id="importBtn">导入标注</button>
+          <input type="file" id="importFile" accept=".json,application/json" hidden>
         </div>
         <div class="lb-row">
           <button class="btn sm ghost" id="inheritBtn" title="P：拿前面最近一期已保存的标注打底；AI 认为变了的地方（和变化检测标了变化的地方）换成这一期的预标，标成待看">沿用上一期 P</button>
@@ -125,7 +163,7 @@
     <h3>切换到正式模式？</h3>
     <p class="small">正式模式下，“保存”会把这一期的逐格地物标注写进数据库（landcover 表，kind = label，记标注人）；组长的“通过 / 退回”也写进同一张表（kind = review）。
       旧版本永远保留，同一期取最新一条。</p>
-    <p class="small">演示模式下只存在这台电脑的浏览器里，不写数据库；切到正式模式后可以再保存。</p>
+    <p class="small">演示与正式模式的保存、草稿各自独立。要把演示成果转入正式模式，先导出这一期的 JSON，切换后打开同一期、导入 JSON，检查后保存。</p>
     <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="modeCancel">先不换</button><button class="btn primary" id="modeOk">换成正式模式</button></div>
   </div>
 </div>
@@ -135,8 +173,9 @@
     <h3>快捷键</h3>
     <table class="lb-keys">
       <tr><td>1 — 5</td><td>类别：水体 / 植被 / 耕地 / 裸露 / 建成</td></tr>
-      <tr><td>6</td><td>看不清（厚云、云影、缺测）</td></tr>
+      <tr><td>6</td><td>看不清（厚云、缺测、其他不可判读）</td></tr>
       <tr><td>7</td><td>标“拿不准”（类别不变，只做记号；再涂一个类别就去掉）</td></tr>
+      <tr><td>8</td><td>云影遮挡（单独保留原因，训练掩膜为255）</td></tr>
       <tr><td>S / D / F / L</td><td>工具：超像素 / 画笔 / 整片 / 套索</td></tr>
       <tr><td>[ / ]</td><td>画笔变小 / 变大（1、3、5、9 格）</td></tr>
       <tr><td>J</td><td>放大到下一片待看（黄斜线）</td></tr>
@@ -149,7 +188,7 @@
       <tr><td>O</td><td>涂色 浓 → 淡 → 只描边</td></tr>
       <tr><td>Y</td><td>只突出待看</td></tr>
       <tr><td>A</td><td>左图叠 AI 原预标</td></tr>
-      <tr><td>按住 B</td><td>左图临时换成上一期</td></tr>
+      <tr><td>按住 B / 上一期对照按钮</td><td>左图对照上一期</td></tr>
       <tr><td>T</td><td>真彩色 / 假彩色</td></tr>
       <tr><td>G</td><td>格线</td></tr>
       <tr><td>V</td><td>只看原图</td></tr>
@@ -169,11 +208,13 @@
       <tr><td><i class="sw" style="background:rgb(230,200,60)"></i>3 耕地</td><td>水田、旱地、菜地、大棚。<b>不管这一期是长着庄稼、刚收割、翻耕露土还是灌水，都标耕地</b>。还在种的梯田标耕地。</td></tr>
       <tr><td><i class="sw" style="background:rgb(190,120,70)"></i>4 裸露</td><td>不是耕作造成的裸地：施工开挖、取土、弃渣、新填方、推平待建的地块、裸露边坡、滑塌、露出水面的沙洲和河滩。</td></tr>
       <tr><td><i class="sw" style="background:rgb(220,40,40)"></i>5 建成</td><td>房屋、厂房、道路、铁路（道床、站场）、硬化场地、停车场。<b>铁路和主要道路按看得见的宽度标，至少 1 格宽、保持连续</b>（这是“哪类占多数”的唯一例外）。</td></tr>
-      <tr><td><i class="sw" style="background:rgb(150,156,168)"></i>6 看不清</td><td>厚云、云影、缺测黑块、条带。薄雾下地物还认得出来的照常标。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(150,156,168)"></i>6 看不清</td><td>厚云、缺测黑块、条带等无法判读的地方。薄雾下地物还认得出来的照常标。</td></tr>
       <tr><td><i class="sw lc-unsure"></i>7 拿不准</td><td>看得见但定不了类（比如一格里两类各半、分不清是撂荒还是在种）：先涂你最倾向的类别，再用 7 做记号，组长会看。</td></tr>
+      <tr><td><i class="sw lc-shadow"></i>8 云影</td><td>云投下的阴影导致地物无法可靠判读，用这一项标出遮挡范围。它是观测原因，训练掩膜为255；不是第六种地物。山影仍用“看不清”，并在质量原因选山影。云影下仍能可靠认出的地物照常标地类。</td></tr>
     </table>
     <h4>怎么标最快</h4>
     <ol class="small">
+      <li><b>先评整期质量</b>：看整幅影像，选清楚、模糊仍能看、局部看不清或基本看不清，填写原因后点“确认质量”。旧标注没有质量判断的，会显示“未评定”，需要补评。局部遮挡涂出范围后再保存。</li>
       <li><b>先标锚定期</b>（列表筛选“锚定期”，每个季度一期最清楚的，带 ★）：从 AI 预标开始，按 <b>J</b> 一片一片看黄斜线的地方——对的就用同一类点一下（黄斜线消失），错的改掉；再整幅扫一遍，保存。</li>
       <li><b>再标其余各期</b>：打开后按 <b>P</b> 沿用前面最近一期已保存的标注。只有 AI 认为变了的地方、变化检测标了变化的地方换成这一期的预标并标黄，按 J 逐片看完就能保存。</li>
       <li>超像素（S）适合大部分地方；边界不准的用画笔（D）补；一整片被 AI 认错类的用整片（F）一下改掉；形状清楚的施工区、水塘用套索（L）。</li>
@@ -181,7 +222,7 @@
     </ol>
     <h4>容易错的地方</h4>
     <ul class="small">
-      <li>AI 预标的底子是在旧五类标签上训练的分割模型，旧标签的毛病会带过来：村里的树常被标成建成、河边沙洲被标成建成、窄路和铁路断断续续。</li>
+      <li>当前 AI 预标主要依据本期光谱、多年用途及道路铁路位置，旧五类分割模型只作兜底。仍要看图核对村内树木、河边沙洲和窄路、铁路的边界与连续性。</li>
       <li>冬季收割后的田、春季翻耕的田颜色像裸地，按耕地标；只有施工、取土这类才标裸露。</li>
       <li>水面边缘按这一期的水边标，不要照搬别的期。</li>
       <li>没把握的地方宁可标“拿不准”，不要猜。</li>

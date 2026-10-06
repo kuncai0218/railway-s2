@@ -13,6 +13,7 @@
 .lc-palette button .pct { font-size: 11.5px; color: #8b93a1; font-variant-numeric: tabular-nums; }
 .lc-palette .sw, .lc-guide .sw, .lc-bars .sw { display: inline-block; width: 13px; height: 13px; border-radius: 3px; vertical-align: -2px; }
 .sw.lc-unsure { background: repeating-linear-gradient(-45deg, #fff 0 2px, #6b7280 2px 5px); border: 1px solid #9ca3af; }
+.sw.lc-shadow, .lg.hatch-shadow { background: repeating-linear-gradient(45deg, #c4b5fd 0 2px, #53436e 2px 5px); border: 1px solid #8b5cf6; }
 
 /* 1024 的细节层（斜线、边界）缩到 256 的格子上 */
 .viewer-mask.lc-det { width: 256px; height: 256px; }
@@ -35,6 +36,18 @@
 .lc-banner { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: #fff7e0; border: 1px solid #f0c75a; font-size: 12.5px; line-height: 1.6; color: #6b4b00; }
 #rvSec .input { height: 60px; font-size: 13px; }
 .rv-state-ok { color: var(--ok); font-weight: 600; } .rv-state-back { color: var(--danger); font-weight: 600; }
+.lc-quality { padding: 10px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+.lc-quality.pending { border-color: #d49b20; background: #fffbeb; }
+.lc-quality h4, .lc-quality p { margin: 0 0 8px; }
+.lc-quality label { font-size: 12.5px; }
+.lc-quality select { margin: 5px 0 8px; }
+.lc-quality textarea { min-height: 58px; font-size: 13px; }
+.lc-reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; border: 0; padding: 0; margin: 0 0 10px; }
+.lc-reasons legend { font-size: 12.5px; margin-bottom: 5px; }
+.lc-reasons label { display: flex; align-items: center; gap: 5px; }
+.lc-reasons input { margin: 0; }
+.lc-step { margin: 12px 0 5px; font-size: 14px; }
+#qualitySummary { white-space: pre-wrap; }
 
 /* 标注说明 */
 .modal.lc-guide { width: min(760px, calc(100vw - 32px)); }
