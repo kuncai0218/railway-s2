@@ -91,12 +91,14 @@
       <div class="lc-banner" id="banner" hidden></div>
       <section class="lb-sec lc-quality-ai" id="qualityAiSec" aria-labelledby="qualityAiTitle" hidden>
         <h4 id="qualityAiTitle">AI 整期质量建议</h4>
+        <p class="tiny" id="changeQualityLine"></p>
         <p id="qualityAiVerdict"></p>
         <p class="tiny" id="qualityAiNote"></p>
         <ul class="tiny" id="qualityAiBasis"></ul>
         <p class="tiny" id="qualityAiMetrics"></p>
+        <p class="tiny" id="qualityMachineDetail" hidden></p>
         <p class="tiny">先看整幅再确认。采用建议只填入下面的质量选项；人工确认后才生效。</p>
-        <div class="lb-row"><button class="btn sm" id="qualityAdoptBtn">采用建议</button></div>
+        <div class="lb-row"><button class="btn sm" id="qualityAdoptBtn">采用建议</button><button class="btn sm ghost" id="qualityRefreshBtn">刷新原第一步</button></div>
         <button class="btn sm primary" id="qualitySkipBtn" hidden>确认看不清，保存并跳过</button>
       </section>
       <section class="lb-sec lc-quality" id="qualitySec" aria-labelledby="qualityTitle">
@@ -130,6 +132,12 @@
       <h4 class="lc-step">第二步 · 地物与遮挡范围</h4>
       <div class="lc-bars" id="pBars"></div>
       <div class="lb-count" id="pCount"></div>
+      <div class="lb-sec" id="occlusionSec" hidden>
+        <h4>云遮挡修正</h4>
+        <p class="tiny" id="occlusionSummary"></p>
+        <button class="btn sm" id="occlusionApplyBtn">应用新云遮挡建议</button>
+        <p class="tiny">只处理你还没改过的格：云、云影及缺测改为看不清；薄云 / 疑似遮挡保留原类别、补上待看。人工改过的部分保留。可撤销，检查后保存。</p>
+      </div>
       <div class="lb-actions">
         <button class="btn primary" id="saveNextBtn" title="Enter">保存这一期，下一期</button>
         <div class="lb-row">

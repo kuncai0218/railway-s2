@@ -7,7 +7,7 @@
 //   整期质量写 meta.quality；旧记录没有此字段时保持未评定。草稿按 demo/live 分开。
 import { append, uuid, clientId } from './api.js';
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION, SITE_ORDER } from './config.js';
-import { loadSites, loadPeriods, fmtDate, fmtTime } from './store.js';
+import { loadSites, loadPeriods, loadReadings, latestByScene, fmtDate, fmtTime } from './store.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -53,6 +53,24 @@ const dataCache = {};              // 记录 id → data（含 map）
 let W = null;                      // 当前这一期的工作副本
 let openSeq = 0;
 let switching = false;
+const changeQualities = new Map(); // 原变化判读的人工第一步，只读；与地物质量分别保存
+async function loadChangeQuality(code, refresh = false) {
+  const prior = changeQualities.get(code);
+  if (prior?.loading) return prior.loading;
+  if (prior && !refresh) return prior;
+  const state = { latest: prior?.latest || {}, online: prior?.online, loading: null };
+  changeQualities.set(code, state);
+  state.loading = (async () => {
+    try {
+      const result = await loadReadings(code);
+      state.latest = latestByScene(result.rows);
+      state.online = result.online;
+    } catch { state.online = false; }
+    finally { state.loading = null; }
+    return state;
+  })();
+  return state.loading;
+}
 
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 3200); }
 function err(msg) { $('err').textContent = msg || ''; }
@@ -162,7 +180,13 @@ function migrateWholeMask(w, version) {
 function normaliseQuality(q) {
   if (!q || !Object.hasOwn(QUALITY, q.status)) return null;
   const out = { status: q.status, reasons: [...new Set((Array.isArray(q.reasons) ? q.reasons : []).filter(r => Object.hasOwn(REASONS, r)))], note: String(q.note || '').slice(0, 500), by: q.by || null, reviewed_at: q.reviewed_at || null };
-  if (q.suggestion && Object.hasOwn(QUALITY, q.suggestion.status)) out.suggestion = { version: String(q.suggestion.version || '').slice(0, 120), source: q.suggestion.source === 'full_frame' ? 'full_frame' : 'prefill_fallback', status: q.suggestion.status };
+  if (q.suggestion && Object.hasOwn(QUALITY, q.suggestion.status)) {
+    out.suggestion = { version: String(q.suggestion.version || '').slice(0, 120), source: ['full_frame', 'change_quality'].includes(q.suggestion.source) ? q.suggestion.source : 'prefill_fallback', status: q.suggestion.status };
+    if (out.suggestion.source === 'change_quality') {
+      out.suggestion.reading_id = String(q.suggestion.reading_id || '').slice(0, 100);
+      out.suggestion.scope = q.suggestion.scope === 'aoi' ? 'aoi' : 'full_frame';
+    }
+  }
   return out;
 }
 function qualityReady(w = W) { return !switching && !!w?.quality && !w.qEditing && (!w.mode || w.mode === mode); }
@@ -277,24 +301,37 @@ function aiOf(code, date) {
   const pr = (async () => {
     if (!AIX?.[code]?.dates?.includes(date)) return null;
     const v = encodeURIComponent(AIX.version || '');
-    const [a, b] = await Promise.all([loadPixels(`prefill_lc/${code}/${date}_lc.png?v=${v}`), loadPixels(`prefill_lc/${code}/${date}_sp.png?v=${v}`)]);
+    const ocInfo = AIX.occlusion;
+    const ocUrl = ocInfo?.encoding === 'R=20+40*id' && ocInfo.suffix === '_oc.png' ? `prefill_lc/${code}/${date}${ocInfo.suffix}?v=${v}` : null;
+    const [a, b, o] = await Promise.all([loadPixels(`prefill_lc/${code}/${date}_lc.png?v=${v}`), loadPixels(`prefill_lc/${code}/${date}_sp.png?v=${v}`), ocUrl ? loadPixels(ocUrl) : null]);
     if (!a) return null;
     // 分档编码（见 landcover_fine_20261006/脚本/lc_web.py），读图时差几个色阶也不影响
-    const cls = new Uint8Array(N), conf = new Uint8Array(N), unc = new Uint8Array(N);
+    const cls = new Uint8Array(N), conf = new Uint8Array(N), unc = new Uint8Array(N), shadow = new Uint8Array(N);
+    let occlusion = o ? new Uint8Array(N) : null;
+    if (o) for (let i = 0; i < N; i++) {
+      const id = Math.round((o[i * 4] - 20) / 40);
+      if (id < 0 || id > 4 || Math.abs(o[i * 4] - (20 + 40 * id)) > 8) { occlusion = null; break; }
+      occlusion[i] = id;
+    }
     for (let i = 0; i < N; i++) {
       const r = a[i * 4];
       cls[i] = r >= 230 ? NONE : Math.min(4, Math.floor(r / 40));
       conf[i] = Math.min(4, Math.floor(a[i * 4 + 1] / 50)) * 25;
       unc[i] = a[i * 4 + 2] > 127 ? 1 : 0;
+      if (occlusion) {
+        shadow[i] = occlusion[i] === 3 ? 1 : 0;
+        if (hardOcclusion(occlusion[i])) { cls[i] = NONE; unc[i] = 0; conf[i] = 0; }
+      }
     }
     let sp = null;
     if (b) { sp = new Uint16Array(N); for (let i = 0; i < N; i++) sp[i] = (b[i * 4] >> 4) * 256 + (b[i * 4 + 1] >> 4) * 16 + (b[i * 4 + 2] >> 4); }
-    return { cls, conf, unc, sp };
+    return { cls, conf, unc, sp, occlusion, shadow, occlusionMissing: !!ocUrl && !occlusion };
   })();
   aiCache.set(key, pr);
   while (aiCache.size > 24) aiCache.delete(aiCache.keys().next().value);
   return pr;
 }
+const hardOcclusion = id => id === 1 || id === 3 || id === 4;
 let cdIndex = null;
 async function cdMap(code, date) {
   cdIndex = cdIndex || fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
@@ -589,7 +626,7 @@ class Viewer {
     this.hoverTip.hidden = !inside || !w || switching;
     if (this.hoverTip.hidden) return;
     const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || CLS[5];
-    const label = w.shadow[i] ? '云影 · 看不清' : w.whole[i] ? '看不清 · 整期不可判' : cls.name;
+    const label = w.shadow[i] ? '云影 · 看不清' : w.whole[i] ? '看不清 · 整期不可判' : w.lab[i] === NONE && w.ai?.occlusion?.[i] === 1 ? '云遮挡 · 看不清' : cls.name;
     const marks = [w.uns[i] ? '拿不准' : '', w.todo[i] && !w.tch[i] && w.lab[i] !== NONE ? '待看' : ''].filter(Boolean);
     this.hoverTitle.textContent = `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
     this.hoverTip.style.borderLeftColor = w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
@@ -743,6 +780,7 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   const seq = ++openSeq;
   await flushDraft();
   const p = P[code][k];
+  const qualityRead = loadChangeQuality(code);
   const key = `${code}|${p.scene_id}`;
   const ai = await aiOf(code, p.date);
   let w = null, src = 'ai', baseId = null, savedRow = null;
@@ -757,7 +795,7 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   }
   if (!w) {
     w = blankWork();
-    if (ai) { w.lab.set(ai.cls); w.todo.set(ai.unc); }
+    if (ai) { w.lab.set(ai.cls); w.todo.set(ai.unc); w.shadow.set(ai.shadow); }
     src = 'ai';
   }
   if (seq !== openSeq || openMode !== mode) return;
@@ -773,6 +811,8 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   renderPanel();
   renderSites();
   renderList();
+  const opened = W;
+  qualityRead.then(() => { if (W === opened && seq === openSeq && openMode === mode) renderQualitySuggestion(); });
 }
 let imgKind = 'tc', blink = false, blinkPinned = false;
 function setImages() {
@@ -812,6 +852,40 @@ function renderCounts() {
     + `<span>云影遮挡 ${fmtN(c.shadow)} 格（${pct(c.shadow, N)}）</span>`
     + `<span class="tiny">比 AI 预标改了 ${fmtN(c.edited)} 格 · 你动过 ${fmtN(c.tch)} 格</span>`;
   renderPalette(c);
+  renderOcclusionSuggestion();
+}
+function occlusionStats(w = W) {
+  if (!w?.ai?.occlusion) return null;
+  let masked = 0, hardConflicts = 0, softReview = 0, kept = 0;
+  for (let i = 0; i < N; i++) {
+    const id = w.ai.occlusion[i], hard = hardOcclusion(id);
+    if (!hard && id !== 2) continue;
+    if (hard) masked++;
+    if (w.tch[i]) { kept++; continue; }
+    if (hard && (w.lab[i] !== NONE || w.shadow[i] !== w.ai.shadow[i] || w.uns[i] || w.todo[i] || w.whole[i])) hardConflicts++;
+    if (id === 2 && w.lab[i] <= 4 && !w.todo[i]) softReview++;
+  }
+  return { masked, hardConflicts, softReview, conflicts: hardConflicts + softReview, kept };
+}
+function renderOcclusionSuggestion() {
+  const s = occlusionStats(), sec = $('occlusionSec');
+  sec.hidden = !s;
+  if (!s) return;
+  $('occlusionSummary').textContent = `云、云影及缺测共 ${fmtN(s.masked)} 格，其中待修正 ${fmtN(s.hardConflicts)} 格；薄云 / 疑似遮挡需补待看 ${fmtN(s.softReview)} 格；保留 ${fmtN(s.kept)} 格人工标注。`;
+  $('occlusionApplyBtn').disabled = saving || switching || W.mode !== mode || !s.conflicts;
+}
+function applyOcclusionSuggestion() {
+  if (!W || saving || switching || W.mode !== mode) return false;
+  const s = occlusionStats();
+  if (!s?.conflicts) return false;
+  ops.begin();
+  for (let i = 0; i < N; i++) if (!W.tch[i]) {
+    if (hardOcclusion(W.ai.occlusion[i])) { W.lab[i] = NONE; W.shadow[i] = W.ai.shadow[i]; W.uns[i] = 0; W.todo[i] = 0; W.whole[i] = 0; }
+    else if (W.ai.occlusion[i] === 2 && W.lab[i] <= 4) W.todo[i] = 1;
+  }
+  ops.n = s.conflicts; ops.end();
+  toast(`已修正 ${fmtN(s.hardConflicts)} 格硬遮挡，补 ${fmtN(s.softReview)} 格待看；保留 ${fmtN(s.kept)} 格人工标注。Ctrl+Z 可撤销；检查后保存。`);
+  return true;
 }
 function renderPalette(c) {
   const valid = c ? N - c.n[5] : 0;
@@ -850,6 +924,7 @@ function renderPanel() {
   const banner = [];
   if (tableReady === false) banner.push('数据库里还没有地物标注的表（landcover），现在只能用演示模式：标注只存在这台电脑。组长在 Supabase 运行 supabase_landcover.sql 后刷新，就能用正式模式。');
   if (!W.ai) banner.push('这一期没有 AI 预标，只能从空白开始标。');
+  if (W.ai?.occlusionMissing) banner.push('这一期的云遮挡建议图暂未加载，当前标注保持原样；刷新页面后重试。');
   $('banner').hidden = !banner.length;
   $('banner').innerHTML = banner.map(esc).join('<br>');
   renderReview();
@@ -868,7 +943,7 @@ function qualityFormValue() {
   if (W?.qPending?.suggestion) q.suggestion = W.qPending.suggestion;
   return q;
 }
-function qualitySuggestionFor(w = W) {
+function machineQualitySuggestion(w = W) {
   if (!w) return null;
   const rec = QAI?.[w.code]?.[w.p.date];
   if (QAI?.scope === 'full_frame' && rec?.scene_id === w.p.scene_id && Object.hasOwn(QUALITY, rec.status)) {
@@ -877,22 +952,54 @@ function qualitySuggestionFor(w = W) {
   }
   const info = AIX?.[w.code]?.periods?.[w.p.date] || {}, none = Number.isFinite(info.none) ? info.none : null, hazy = !!(w.p.hazy || info.hazy);
   if (none === null && !hazy) return null;
-  const status = none >= .75 ? 'no' : none >= .15 ? 'partial' : hazy ? 'blurry' : 'yes';
+  const status = none > .8 ? 'no' : none >= .02 ? 'partial' : hazy ? 'blurry' : 'yes';
   const basis = none !== null ? [`地物预标有${Math.round(none * 100)}%格记为看不清（云、云影、缺测合并）`] : [];
   if (hazy) basis.push('本期有雾标记，需看图确认地物是否仍能辨认');
   return { status, reasons: hazy ? ['haze'] : [], note: basis.join('；'), version: String(AIX?.version || '').slice(0, 120), source: 'prefill_fallback', basis, metrics: {}, skip: status === 'no' };
 }
+function changeQualityFor(w = W) {
+  if (!w) return null;
+  const row = changeQualities.get(w.code)?.latest[w.p.scene_id]?.quality, q = row?.data;
+  if (!q || !Object.hasOwn(QUALITY, q.clear)) return null;
+  const keys = { '云': 'cloud', '云影': 'cloud_shadow', '雾 / 霾': 'haze', '阴影': 'terrain_shadow', '黑块 / 缺失': 'missing', '条纹': 'stripe', '太亮 / 太暗': 'brightness', '模糊': 'blur' };
+  const originalReasons = Array.isArray(q.reasons) ? q.reasons : [];
+  const reasons = [...new Set(originalReasons.map(r => keys[r] || (Object.hasOwn(REASONS, r) ? r : null)).filter(Boolean))];
+  if (q.also_blurry && !reasons.includes('blur')) reasons.push('blur');
+  const scope = sites?.[w.code]?.aoi ? 'aoi' : 'full_frame';
+  const scopeText = scope === 'aoi' ? '观察范围（黄色线以内）' : '整幅';
+  const when = row.created_at ? new Date(row.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '保存时间未记录';
+  const basis = [`原变化判读第一步人工记录：${QUALITY[q.clear]}；${scopeText}，${when}保存${row._pending ? '，本机待上传' : ''}`];
+  if (scope === 'aoi') basis.push('原判读只看观察范围；地物标注看整幅，范围以外的云、云影也需核对。');
+  if (q.boxes?.length) basis.push(`原记录圈了${q.boxes.length}处看不清；请在本台核对并涂出遮挡格。`);
+  if (q.also_blurry) basis.push('原记录注明其余地方也有点模糊。');
+  const note = [q.other, originalReasons.filter(r => !keys[r] && !Object.hasOwn(REASONS, r)).join('、')].filter(Boolean).join('；') || '沿用原第一步同档建议，请看整幅后由地物台再次确认。';
+  return { status: q.clear, reasons, note, version: `change-quality:${row.id || row.created_at || w.p.scene_id}`, source: 'change_quality', basis, metrics: {}, skip: q.clear === 'no', reading_id: row.id || '', scope, scopeText, when, pending: !!row._pending };
+}
+function qualitySuggestionFor(w = W) {
+  const prior = changeQualityFor(w), machine = machineQualitySuggestion(w);
+  if (!prior) return machine;
+  const basis = [...prior.basis];
+  if (machine?.status === 'no' && prior.status !== 'no') basis.push(`需复核差异：原第一步为“${QUALITY[prior.status]}”，整幅机器质检建议“基本看不清”。请检查整幅后修改或确认质量。`);
+  else if (prior.status === 'no' && machine && machine.status !== 'no') basis.push(`原第一步判基本看不清；整幅机器质检为“${QUALITY[machine.status]}”。请看图复核，仍由你确认是否跳过。`);
+  return { ...prior, basis, metrics: machine?.metrics || {}, conflict: machine?.status === 'no' && prior.status !== 'no' };
+}
 function renderQualitySuggestion() {
-  const sec = $('qualityAiSec'), s = qualitySuggestionFor();
+  const sec = $('qualityAiSec'), s = qualitySuggestionFor(), machine = machineQualitySuggestion(), prior = changeQualityFor();
   sec.hidden = !W || switching;
   if (sec.hidden) return;
-  sec.classList.toggle('warn', s?.status === 'no' || s?.status === 'partial');
+  sec.classList.toggle('warn', s?.status === 'no' || s?.status === 'partial' || !!s?.conflict);
+  $('qualityAiTitle').textContent = s?.source === 'change_quality' ? '原变化判读质量 · 待再次确认' : 'AI 整期质量建议';
+  const state = changeQualities.get(W.code);
+  $('changeQualityLine').textContent = prior ? `变化判读第一步：${QUALITY[prior.status]}（${prior.scopeText}，${prior.when}保存${prior.pending ? '，本机待上传' : ''}）` : state?.loading ? '变化判读第一步：正在只读获取。' : state?.online === false ? '变化判读第一步：暂未取到原记录，可先参考整幅质检。' : '变化判读第一步：这期尚无原记录。';
   $('qualityAiVerdict').textContent = s ? s.status === 'no' ? '整体看不清，建议跳过这一期' : s.status === 'blurry' ? '整体模糊，建议先看整幅' : `建议：${QUALITY[s.status]}` : '暂无整期机器质检，请人工判断。';
   $('qualityAiNote').textContent = s?.note || '';
   $('qualityAiBasis').innerHTML = (s?.basis || []).map(b => `<li>${esc(b)}</li>`).join('');
   const metrics = s?.metrics || {}, parts = [];
-  for (const [key, name] of [['cloud', '云'], ['thin', '薄云'], ['shadow', '云影'], ['missing', '缺测']]) if (Number.isFinite(metrics[key])) parts.push(`${name} ${Math.round(metrics[key] * 1000) / 10}%`);
-  $('qualityAiMetrics').textContent = `${s?.source === 'full_frame' ? '整幅机器质检' : s ? '预标统计建议' : ''}${parts.length ? ' · ' + parts.join(' / ') : ''}`;
+  for (const [key, name] of [['cloud', '云'], ['thin', '薄云 / 疑似遮挡'], ['shadow', '云影'], ['missing', '缺测']]) if (Number.isFinite(metrics[key])) parts.push(`${name} ${Math.round(metrics[key] * 1000) / 10}%`);
+  $('qualityAiMetrics').textContent = `${machine?.source === 'full_frame' ? '整幅机器质检' : machine ? '预标统计建议' : ''}${parts.length ? ' · ' + parts.join(' / ') : ''}`;
+  $('qualityMachineDetail').hidden = !prior || !machine;
+  $('qualityMachineDetail').textContent = prior && machine ? `整幅机器质检：${QUALITY[machine.status]}。${machine.note || ''}\n${machine.basis.join('；')}` : '';
+  $('qualityRefreshBtn').disabled = saving || switching || !!state?.loading;
   $('qualityAdoptBtn').disabled = !s || saving || switching;
   $('qualitySkipBtn').hidden = !s?.skip;
   $('qualitySkipBtn').disabled = saving || switching;
@@ -903,7 +1010,7 @@ function adoptQualitySuggestion() {
   if (!s) return false;
   ops.begin();
   W.qEditing = true;
-  W.qPending = { status: s.status, reasons: [...s.reasons], note: s.note || s.basis.join('；').slice(0, 500), suggestion: { version: s.version, source: s.source, status: s.status } };
+  W.qPending = { status: s.status, reasons: [...s.reasons], note: s.note || s.basis.join('；').slice(0, 500), suggestion: { version: s.version, source: s.source, status: s.status, ...(s.source === 'change_quality' ? { reading_id: s.reading_id, scope: s.scope } : {}) } };
   ops.n = 1; ops.end(); renderQuality(); err('');
   $('qualityStatus').focus();
   toast('建议已填入，请看整幅并确认质量；确认前标注保持原样。');
@@ -951,7 +1058,7 @@ function confirmQuality() {
     }
   } else if (W.whole.some(Boolean)) {
     for (let i = 0; i < N; i++) if (W.whole[i]) {
-      W.lab[i] = W.ai?.cls[i] ?? NONE; W.todo[i] = W.ai?.unc[i] ?? 0; W.uns[i] = 0; W.tch[i] = 0; W.whole[i] = 0;
+      W.lab[i] = W.ai?.cls[i] ?? NONE; W.todo[i] = W.ai?.unc[i] ?? 0; W.shadow[i] = W.ai?.shadow?.[i] ?? 0; W.uns[i] = 0; W.tch[i] = 0; W.whole[i] = 0;
     }
     restored = true;
   }
@@ -1120,7 +1227,7 @@ async function inheritPrev() {
   for (let i = 0; i < N; i++) {
     if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue; // 当前期人标遮挡不能被上一期/预标填补
     const a1 = ai.cls[i], a0 = aiPrev ? aiPrev.cls[i] : NONE, h0 = prev.lab[i];
-    W.tch[i] = 0; W.uns[i] = 0;
+    W.tch[i] = 0; W.uns[i] = 0; W.shadow[i] = ai.shadow[i];
     if (a1 === NONE) { W.lab[i] = NONE; W.todo[i] = 0; continue; }
     const changed = (a0 !== NONE && a1 !== a0) || (!!cd && cd[i] > 0);
     if (changed || h0 === NONE) { W.lab[i] = a1; W.todo[i] = changed || ai.unc[i] ? 1 : 0; if (changed) nChg++; }
@@ -1137,7 +1244,7 @@ function resetAi() {
   ops.begin();
   for (let i = 0; i < N; i++) {
     if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue;
-    W.lab[i] = W.ai.cls[i]; W.uns[i] = 0; W.tch[i] = 0; W.todo[i] = W.ai.unc[i];
+    W.lab[i] = W.ai.cls[i]; W.shadow[i] = W.ai.shadow[i]; W.uns[i] = 0; W.tch[i] = 0; W.todo[i] = W.ai.unc[i];
   }
   ops.n = 1; W.src = 'ai';
   ops.end();
@@ -1198,7 +1305,8 @@ function nextTodo() {
 // ---------------------------------------------------------------- 保存和复核
 let saving = false;
 function renderBusy() {
-  for (const id of ['saveBtn', 'saveNextBtn', 'rvOk', 'rvBack', 'importBtn', 'modeBtn', 'qualityConfirmBtn', 'qualityEditBtn', 'qualityAdoptBtn', 'qualitySkipBtn']) $(id).disabled = saving || switching;
+  for (const id of ['saveBtn', 'saveNextBtn', 'rvOk', 'rvBack', 'importBtn', 'modeBtn', 'qualityConfirmBtn', 'qualityEditBtn', 'qualityAdoptBtn', 'qualitySkipBtn', 'occlusionApplyBtn', 'qualityRefreshBtn']) $(id).disabled = saving || switching;
+  renderOcclusionSuggestion();
   if (!saving && !switching && W) renderQualitySuggestion();
 }
 async function savePeriod(goNext = false) {
@@ -1294,6 +1402,14 @@ $('qualityEditBtn').onclick = editQuality;
 $('qualityConfirmBtn').onclick = confirmQuality;
 $('qualityAdoptBtn').onclick = adoptQualitySuggestion;
 $('qualitySkipBtn').onclick = () => skipSuggestedQuality().catch(e => err(`保存失败：${e.message}`));
+$('occlusionApplyBtn').onclick = applyOcclusionSuggestion;
+$('qualityRefreshBtn').onclick = async () => {
+  if (!W || saving || switching || W.mode !== mode) return;
+  const w = W, reading = loadChangeQuality(w.code, true);
+  renderQualitySuggestion();
+  await reading;
+  if (W === w && w.mode === mode) { renderQualitySuggestion(); toast(changeQualities.get(w.code)?.online === false ? '暂未取到原第一步记录，保留整幅质检建议。' : '已只读同步原变化判读第一步；人工质量表单保持原样。'); }
+};
 const qualityChanged = () => { if (!W || saving || switching || W.mode !== mode) return; W.qPending = qualityFormValue(); W.qEditing = true; W.dirty = true; afterEdit(); };
 $('qualityStatus').onchange = qualityChanged;
 $('qualityNote').oninput = qualityChanged;
@@ -1382,7 +1498,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
   window.__lc = { get W() { return W; }, get LAT() { return LAT; }, get mode() { return mode; }, get tableReady() { return tableReady; }, get demoRows() { return demoRows; }, get QAI() { return QAI; }, get AIX() { return AIX; },
     scene, ops, va, vb, openPeriod, savePeriod, inheritPrev, resetAi, nextTodo, undo, setBrush, setTool, countsOf, packMap, unpackMap, encodeMap, decodeMap, aiOf, P, drafts, kvKeys, kvDel,
-    trainingMask, maskPng, normaliseQuality, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft, qualitySuggestionFor, renderQualitySuggestion, adoptQualitySuggestion, skipSuggestedQuality };
+    trainingMask, maskPng, normaliseQuality, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft, qualitySuggestionFor, renderQualitySuggestion, adoptQualitySuggestion, skipSuggestedQuality, occlusionStats, renderOcclusionSuggestion, applyOcclusionSuggestion, machineQualitySuggestion, changeQualityFor, loadChangeQuality };
 }
 
 // ---------------------------------------------------------------- 启动

@@ -60,6 +60,8 @@
 #qualityAiVerdict { font-size: 13px; font-weight: 600; }
 #qualityAiNote { white-space: pre-wrap; }
 #qualityAiMetrics { color: var(--sub); }
+#changeQualityLine { color: #334155; }
+#qualityMachineDetail { border-top: 1px solid #dbe4f0; padding-top: 8px; white-space: pre-wrap; }
 #qualitySkipBtn { margin-top: 8px; white-space: normal; }
 
 /* 标注说明 */
