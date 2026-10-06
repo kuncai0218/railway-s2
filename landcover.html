@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>地物精标台 · 三测点逐期判读</title>
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="assets/css/work.css">
+<link rel="stylesheet" href="assets/css/review.css">
+<link rel="stylesheet" href="assets/css/label.css">
+<link rel="stylesheet" href="assets/css/landcover.css">
+</head>
+<body class="rv-body">
+<nav class="nav">
+  <a class="brand" href="index.html"><i></i>三测点逐期判读</a>
+  <a class="link" href="work.html">判读</a>
+  <a class="link" href="board.html">实时看板</a>
+  <a class="link" href="leader.html">组长台</a>
+  <a class="link" href="review.html">AI 复核台</a>
+  <a class="link" href="label.html">精标台</a>
+  <a class="link on" href="landcover.html">地物精标</a>
+  <a class="link" href="https://kuncai0218.github.io/railway-platform/" target="_blank" rel="noopener" title="铁路遥感项目平台（新窗口）">项目平台</a>
+  <span class="spacer"></span>
+  <span class="tiny" id="updated"></span>
+  <button class="mode-btn demo" id="modeBtn" title="切换演示模式 / 正式模式">演示模式</button>
+  <button class="btn sm ghost" id="guideBtn">标注说明</button>
+  <button class="btn sm ghost" id="helpBtn">快捷键</button>
+</nav>
+
+<div class="rv-app lb-app lc-app">
+  <!-- 左：期次队列 -->
+  <aside class="rv-queue">
+    <div class="rv-sites" id="siteTabs"></div>
+    <select class="input rv-filter" id="fType">
+      <option value="anchor">锚定期：每季度一期最清楚的（先标这些）</option>
+      <option value="todo">还没保存的期</option>
+      <option value="draft">这台电脑上改过、还没保存的</option>
+      <option value="saved">已保存、等组长看的</option>
+      <option value="back">组长退回的</option>
+      <option value="ok">组长通过的</option>
+      <option value="all">全部期</option>
+    </select>
+    <div class="rv-progress"><div class="progress"><i id="progBar" style="width:0"></i></div><span class="tiny" id="progText"></span></div>
+    <div class="rv-list lb-list" id="qList"><div class="tiny" style="padding:8px">正在读取…</div></div>
+  </aside>
+
+  <!-- 中：同一期的两张图，同步缩放；左只看影像，右叠标注，两边都能涂 -->
+  <section class="rv-images">
+    <div class="rv-toolbar">
+      <div class="seg" id="imgSeg" title="T 切换"><button data-img="tc" class="on">真彩色</button><button data-img="fc">植被假彩色</button></div>
+      <div class="seg" id="toolSeg">
+        <button data-tool="sp" class="on" title="S：点一下涂一整块超像素；按住拖，经过的块都涂">超像素 S</button><button data-tool="brush" title="D：方块画笔，大小用 [ 和 ]">画笔 D</button><button data-tool="flood" title="F：把点到的那一片相连的同一类，整片改成当前类别">整片 F</button><button data-tool="lasso" title="L：按住画一圈，松开后圈里都涂成当前类别">套索 L</button>
+      </div>
+      <div class="seg" id="sizeSeg" title="画笔大小：[ 和 ]"><button data-size="1" class="on">1 格</button><button data-size="3">3</button><button data-size="5">5</button><button data-size="9">9</button></div>
+      <button class="tbtn" id="undoBtn" title="Ctrl+Z">撤销</button>
+      <button class="tbtn on" id="labBtn" title="H：显示 / 隐藏标注">标注</button>
+      <button class="tbtn" id="fillBtn" title="O：涂色 浓 → 淡 → 只描边">涂色：浓</button>
+      <button class="tbtn" id="todoBtn" title="Y：其余的调淡，只突出还要看的（黄斜线）">只突出待看</button>
+      <button class="tbtn" id="aiBtn" title="A：左图叠 AI 原预标，和右边对照">左图叠 AI</button>
+      <button class="tbtn on" id="railBtn" title="铁路参考线（OpenStreetMap，位置可能差几十米，只作参考）">铁路</button>
+      <button class="tbtn on" id="gridBtn" title="G：放大后显示 10 米格线">格线</button>
+      <button class="tbtn" id="bareBtn" title="V：只看原图，再按一次恢复">原图</button>
+      <button class="tbtn" id="jumpBtn" title="J：放大到下一片还要看的地方">下一片待看 J</button>
+    </div>
+    <div class="lc-palette" id="palette"></div>
+    <div class="rv-pair"><div class="vbox" id="vA"></div><div class="vbox" id="vB"></div></div>
+    <div class="rv-legend">
+      <span>左：只看影像（按住 B 换成上一期）</span><span>右：影像 + 标注</span>
+      <span><i class="lg hatch-y"></i>待看（AI 拿不准，或沿用时 AI 认为变了）</span>
+      <span><i class="lg hatch-w"></i>标了“拿不准”</span><span><i class="lg rail"></i>铁路参考线</span>
+      <span class="rv-hint">滚轮放大 · 右键拖 / 按住空格拖动</span>
+    </div>
+  </section>
+
+  <!-- 右：这一期的统计、保存、复核、说明 -->
+  <aside class="rv-panel" id="panel">
+    <div class="rv-empty" id="emptyMsg">
+      <h3>地物精标台</h3>
+      <p class="muted">逐期标 5 类地物：水体、植被、耕地、裸露、建成，再加“看不清”。每期都有 AI 预标打底，黄斜线是 AI 拿不准的地方。</p>
+      <p class="tiny">左边选一期开始。先看右上角“标注说明”。</p>
+    </div>
+    <div id="perPanel" hidden>
+      <div class="lb-head">
+        <div class="lb-title" id="pTitle"></div>
+        <div class="lb-tags" id="pTags"></div>
+        <div class="lb-note" id="pSrc"></div>
+      </div>
+      <div class="lc-banner" id="banner" hidden></div>
+      <div class="lc-bars" id="pBars"></div>
+      <div class="lb-count" id="pCount"></div>
+      <div class="lb-actions">
+        <button class="btn primary" id="saveNextBtn" title="Enter">保存这一期，下一期</button>
+        <div class="lb-row">
+          <button class="btn sm" id="saveBtn" title="Ctrl+S">只保存</button>
+          <button class="btn sm" id="prevBtn" title="←">上一期</button>
+          <button class="btn sm" id="nextBtn" title="→">下一期</button>
+        </div>
+        <div class="lb-row">
+          <button class="btn sm ghost" id="inheritBtn" title="P：拿前面最近一期已保存的标注打底；AI 认为变了的地方（和变化检测标了变化的地方）换成这一期的预标，标成待看">沿用上一期 P</button>
+          <button class="btn sm ghost" id="resetBtn" title="整期换回 AI 预标（可以撤销）">恢复 AI 预标</button>
+          <button class="btn sm ghost danger" id="dropBtn" title="删掉这台电脑上这一期没保存的修改">放弃本机修改</button>
+        </div>
+      </div>
+      <div class="err" id="err"></div>
+      <div class="lb-sec">
+        <h4>标注人</h4>
+        <input class="input" id="whoInput" placeholder="你的名字（会记在每条标注和复核上）" maxlength="20">
+      </div>
+      <div class="lb-sec" id="rvSec" hidden>
+        <h4>组长复核 <span class="tiny" id="rvState"></span></h4>
+        <textarea class="input" id="rvText" placeholder="退回时写一句原因；通过可以不写" maxlength="500"></textarea>
+        <div class="lb-row" style="margin-top:6px"><button class="btn sm" id="rvOk">通过</button><button class="btn sm danger" id="rvBack">退回</button></div>
+      </div>
+      <div class="lb-sec">
+        <h4>AI 预标说明</h4>
+        <div class="lb-ai" id="pAi"></div>
+      </div>
+      <div class="lb-sec tiny" id="modeNote"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="modal-back" id="modeModal">
+  <div class="modal">
+    <h3>切换到正式模式？</h3>
+    <p class="small">正式模式下，“保存”会把这一期的逐格地物标注写进数据库（landcover 表，kind = label，记标注人）；组长的“通过 / 退回”也写进同一张表（kind = review）。
+      旧版本永远保留，同一期取最新一条。</p>
+    <p class="small">演示模式下只存在这台电脑的浏览器里，不写数据库；切到正式模式后可以再保存。</p>
+    <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="modeCancel">先不换</button><button class="btn primary" id="modeOk">换成正式模式</button></div>
+  </div>
+</div>
+
+<div class="modal-back" id="helpModal">
+  <div class="modal">
+    <h3>快捷键</h3>
+    <table class="lb-keys">
+      <tr><td>1 — 5</td><td>类别：水体 / 植被 / 耕地 / 裸露 / 建成</td></tr>
+      <tr><td>6</td><td>看不清（厚云、云影、缺测）</td></tr>
+      <tr><td>7</td><td>标“拿不准”（类别不变，只做记号；再涂一个类别就去掉）</td></tr>
+      <tr><td>S / D / F / L</td><td>工具：超像素 / 画笔 / 整片 / 套索</td></tr>
+      <tr><td>[ / ]</td><td>画笔变小 / 变大（1、3、5、9 格）</td></tr>
+      <tr><td>J</td><td>放大到下一片待看（黄斜线）</td></tr>
+      <tr><td>P</td><td>沿用上一期已保存的标注</td></tr>
+      <tr><td>Enter</td><td>保存这一期，跳到下一期</td></tr>
+      <tr><td>Ctrl+S</td><td>只保存</td></tr>
+      <tr><td>← / →</td><td>上一期 / 下一期（列表里的顺序）</td></tr>
+      <tr><td>Ctrl+Z</td><td>撤销</td></tr>
+      <tr><td>H</td><td>显示 / 隐藏标注</td></tr>
+      <tr><td>O</td><td>涂色 浓 → 淡 → 只描边</td></tr>
+      <tr><td>Y</td><td>只突出待看</td></tr>
+      <tr><td>A</td><td>左图叠 AI 原预标</td></tr>
+      <tr><td>按住 B</td><td>左图临时换成上一期</td></tr>
+      <tr><td>T</td><td>真彩色 / 假彩色</td></tr>
+      <tr><td>G</td><td>格线</td></tr>
+      <tr><td>V</td><td>只看原图</td></tr>
+      <tr><td>滚轮 / 右键拖 / 空格+拖</td><td>放大缩小 / 平移</td></tr>
+    </table>
+    <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="helpClose">关闭</button></div>
+  </div>
+</div>
+
+<div class="modal-back" id="guideModal">
+  <div class="modal lc-guide">
+    <h3>标注说明（地物 5 类，2026-10-06 版）</h3>
+    <p class="small">每一期按<b>这一期的影像</b>标，一个 10 米格子里哪类占多数就标哪类。耕地、植被、建成按“用途”算：农田收割、翻耕、灌水仍是耕地（这是同一类内部的变化，不算地物变了）。</p>
+    <table class="lc-classes">
+      <tr><td><i class="sw" style="background:rgb(40,110,220)"></i>1 水体</td><td>这一期看得见水面的河、湖、塘、水库、鱼塘（浑水、反光的水面也算）。水位涨落按这一期标。<b>洪水临时淹没</b>的地方这一期标水体；<b>灌水、插秧期的稻田</b>不算水体，标耕地。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(40,150,60)"></i>2 植被</td><td>林地、灌木、草地、竹林、果园、茶园、绿化带；<b>村里、厂区里成片的树</b>也标植被；铁路边坡已经长满草的标植被；撂荒多年长成灌草的田标植被。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(230,200,60)"></i>3 耕地</td><td>水田、旱地、菜地、大棚。<b>不管这一期是长着庄稼、刚收割、翻耕露土还是灌水，都标耕地</b>。还在种的梯田标耕地。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(190,120,70)"></i>4 裸露</td><td>不是耕作造成的裸地：施工开挖、取土、弃渣、新填方、推平待建的地块、裸露边坡、滑塌、露出水面的沙洲和河滩。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(220,40,40)"></i>5 建成</td><td>房屋、厂房、道路、铁路（道床、站场）、硬化场地、停车场。<b>铁路和主要道路按看得见的宽度标，至少 1 格宽、保持连续</b>（这是“哪类占多数”的唯一例外）。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(150,156,168)"></i>6 看不清</td><td>厚云、云影、缺测黑块、条带。薄雾下地物还认得出来的照常标。</td></tr>
+      <tr><td><i class="sw lc-unsure"></i>7 拿不准</td><td>看得见但定不了类（比如一格里两类各半、分不清是撂荒还是在种）：先涂你最倾向的类别，再用 7 做记号，组长会看。</td></tr>
+    </table>
+    <h4>怎么标最快</h4>
+    <ol class="small">
+      <li><b>先标锚定期</b>（列表筛选“锚定期”，每个季度一期最清楚的，带 ★）：从 AI 预标开始，按 <b>J</b> 一片一片看黄斜线的地方——对的就用同一类点一下（黄斜线消失），错的改掉；再整幅扫一遍，保存。</li>
+      <li><b>再标其余各期</b>：打开后按 <b>P</b> 沿用前面最近一期已保存的标注。只有 AI 认为变了的地方、变化检测标了变化的地方换成这一期的预标并标黄，按 J 逐片看完就能保存。</li>
+      <li>超像素（S）适合大部分地方；边界不准的用画笔（D）补；一整片被 AI 认错类的用整片（F）一下改掉；形状清楚的施工区、水塘用套索（L）。</li>
+      <li>保存后组长在右边“组长复核”里通过或退回；退回的期在列表筛选“组长退回的”里。</li>
+    </ol>
+    <h4>容易错的地方</h4>
+    <ul class="small">
+      <li>AI 预标的底子是在旧五类标签上训练的分割模型，旧标签的毛病会带过来：村里的树常被标成建成、河边沙洲被标成建成、窄路和铁路断断续续。</li>
+      <li>冬季收割后的田、春季翻耕的田颜色像裸地，按耕地标；只有施工、取土这类才标裸露。</li>
+      <li>水面边缘按这一期的水边标，不要照搬别的期。</li>
+      <li>没把握的地方宁可标“拿不准”，不要猜。</li>
+    </ul>
+    <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="guideClose">关闭</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="assets/js/landcover.js"></script>
+</body>
+</html>
