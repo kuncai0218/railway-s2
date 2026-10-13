@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>地物精标台 · 三测点逐期判读</title>
+<title>地物精标台（四类覆盖） · 三测点逐期判读</title>
 <link rel="stylesheet" href="assets/css/style.css">
 <link rel="stylesheet" href="assets/css/work.css">
 <link rel="stylesheet" href="assets/css/review.css">
@@ -32,7 +32,8 @@
   <aside class="rv-queue">
     <div class="rv-sites" id="siteTabs"></div>
     <select class="input rv-filter" id="fType">
-      <option value="anchor">锚定期：每季度一期最清楚的（先标这些）</option>
+      <option value="pilot">试标期：每个测点春夏秋冬各一期（先标这些）</option>
+      <option value="anchor">锚定期：每季度一期最清楚的</option>
       <option value="todo">还没保存的期</option>
       <option value="draft">这台电脑上改过、还没保存的</option>
       <option value="saved">已保存、等组长看的</option>
@@ -68,7 +69,7 @@
     <div class="rv-pair"><div class="vbox" id="vA"></div><div class="vbox" id="vB"></div></div>
     <div class="rv-legend">
       <span>左：只看影像（按住 B 换成上一期）</span><span>右：影像 + 标注</span>
-      <span><i class="lg hatch-y"></i>待看（AI 拿不准，或沿用时 AI 认为变了）</span>
+      <span><i class="lg hatch-y"></i>待看（AI 拿不准；沿用时 AI 按这一期判得不一样；旧“耕地”格）</span>
       <span><i class="lg hatch-w"></i>标了“拿不准”</span><span><i class="lg rail"></i>铁路参考线</span>
       <span><i class="lg hatch-shadow"></i>云影遮挡（训练时忽略）</span>
       <span class="rv-hint">悬浮看类别 · 滚轮放大 · 右键拖 / 按住空格拖动</span>
@@ -125,7 +126,7 @@
             <label><input type="checkbox" name="qualityReason" value="blur">模糊</label>
           </fieldset>
           <textarea class="input" id="qualityNote" maxlength="500" placeholder="补充说明（其他原因或局部位置）" aria-label="影像质量补充说明"></textarea>
-          <p class="tiny">局部看不清：确认后用“云影 8”或“看不清 6”涂出范围。基本看不清：确认后整期记为看不清，可撤销。</p>
+          <p class="tiny">局部看不清：确认后用“云影 8”或“看不清 5”涂出范围。基本看不清：确认后整期记为看不清，可撤销。</p>
           <button class="btn primary" id="qualityConfirmBtn">确认质量，开始标注</button>
         </div>
       </section>
@@ -190,14 +191,14 @@
   <div class="modal">
     <h3>快捷键</h3>
     <table class="lb-keys">
-      <tr><td>1 — 5</td><td>类别：水体 / 植被 / 耕地 / 裸露 / 建成</td></tr>
-      <tr><td>6</td><td>看不清（厚云、缺测、其他不可判读）</td></tr>
+      <tr><td>1 — 4</td><td>类别：水面 / 植被 / 裸露土石 / 人工表面</td></tr>
+      <tr><td>5（或 6）</td><td>看不清（厚云、缺测、其他不可判读）</td></tr>
       <tr><td>7</td><td>标“拿不准”（类别不变，只做记号；再涂一个类别就去掉）</td></tr>
       <tr><td>8</td><td>云影遮挡（单独保留原因，训练掩膜为255）</td></tr>
       <tr><td>S / D / F / L</td><td>工具：超像素 / 画笔 / 整片 / 套索</td></tr>
       <tr><td>[ / ]</td><td>画笔变小 / 变大（1、3、5、9 格）</td></tr>
       <tr><td>J</td><td>放大到下一片待看（黄斜线）</td></tr>
-      <tr><td>P</td><td>沿用上一期已保存的标注</td></tr>
+      <tr><td>P</td><td>沿用上一期已保存的人工标注（AI 判得不一样的格标黄提醒）</td></tr>
       <tr><td>Enter</td><td>保存这一期，跳到下一期</td></tr>
       <tr><td>Ctrl+S</td><td>只保存</td></tr>
       <tr><td>← / →</td><td>上一期 / 下一期（列表里的顺序）</td></tr>
@@ -218,32 +219,33 @@
 
 <div class="modal-back" id="guideModal">
   <div class="modal lc-guide">
-    <h3>标注说明（地物 5 类，2026-10-06 版）</h3>
-    <p class="small">每一期按<b>这一期的影像</b>标，一个 10 米格子里哪类占多数就标哪类。耕地、植被、建成按“用途”算：农田收割、翻耕、灌水仍是耕地（这是同一类内部的变化，不算地物变了）。</p>
+    <h3>标注说明（四类覆盖，2026-10-14 版）</h3>
+    <p class="small">每一期按<b>这一期影像上看到的地表</b>标，一个 10 米格子里<b>哪类面积最大就标哪类</b>（没有“三成露土”“半格建成”这类特权）。<b>耕地不再单独成一类</b>：同一块田，长着作物标植被，翻耕或收割后标裸露土石，灌水标水面；同一块田不同季节类别不同是正常的。</p>
     <table class="lc-classes">
-      <tr><td><i class="sw" style="background:rgb(40,110,220)"></i>1 水体</td><td>这一期看得见水面的河、湖、塘、水库、鱼塘（浑水、反光的水面也算）。水位涨落按这一期标。<b>洪水临时淹没</b>的地方这一期标水体；<b>灌水、插秧期的稻田</b>不算水体，标耕地。</td></tr>
-      <tr><td><i class="sw" style="background:rgb(40,150,60)"></i>2 植被</td><td>林地、灌木、草地、竹林、果园、茶园、绿化带；<b>村里、厂区里成片的树</b>也标植被；铁路边坡已经长满草的标植被；撂荒多年长成灌草的田标植被。</td></tr>
-      <tr><td><i class="sw" style="background:rgb(230,200,60)"></i>3 耕地</td><td>水田、旱地、菜地、大棚。<b>不管这一期是长着庄稼、刚收割、翻耕露土还是灌水，都标耕地</b>。还在种的梯田标耕地。</td></tr>
-      <tr><td><i class="sw" style="background:rgb(190,120,70)"></i>4 裸露</td><td>不是耕作造成的裸地：施工开挖、取土、弃渣、新填方、推平待建的地块、裸露边坡、滑塌、露出水面的沙洲和河滩。</td></tr>
-      <tr><td><i class="sw" style="background:rgb(220,40,40)"></i>5 建成</td><td>房屋、厂房、道路、铁路（道床、站场）、硬化场地、停车场。<b>铁路和主要道路按看得见的宽度标，至少 1 格宽、保持连续</b>（这是“哪类占多数”的唯一例外）。</td></tr>
-      <tr><td><i class="sw" style="background:rgb(150,156,168)"></i>6 看不清</td><td>厚云、缺测黑块、条带等无法判读的地方。薄雾下地物还认得出来的照常标。</td></tr>
-      <tr><td><i class="sw lc-unsure"></i>7 拿不准</td><td>看得见但定不了类（比如一格里两类各半、分不清是撂荒还是在种）：先涂你最倾向的类别，再用 7 做记号，组长会看。</td></tr>
-      <tr><td><i class="sw lc-shadow"></i>8 云影</td><td>云投下的阴影导致地物无法可靠判读，用这一项标出遮挡范围。它是观测原因，训练掩膜为255；不是第六种地物。山影仍用“看不清”，并在质量原因选山影。云影下仍能可靠认出的地物照常标地类。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(40,110,220)"></i>1 水面</td><td>这一期看得见水面的河、湖、塘、水库、鱼塘；浑水、反光的水面也算；<b>灌了水的稻田、洪水临时淹没的地方</b>也标水面。水边按这一期的水边标。山影、云影、深色树林不是水。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(40,150,60)"></i>2 植被</td><td>树、灌木、草、竹林、果园、茶园，<b>田里正长着的作物</b>，还认得出来的枯草；村里、厂区里的树冠按实际标植被；铁路边坡长满草的标植被。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(190,120,70)"></i>3 裸露土石</td><td>裸土、岩石、砂石、采石或开挖面、弃渣、填方、<b>翻耕或收割后的田</b>、土路、河滩沙洲、<b>裸露的道床碎石</b>。灰白色的采挖面、砂石堆仍算裸露土石，不算人工表面。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(220,40,40)"></i>4 人工表面</td><td>屋顶、水泥或沥青路面、硬化场地、站台、桥面、看得出来的铁路构筑物。<b>按实际宽度标</b>，不要把整个村子、整片工地、整条铁路走廊一概涂成人工表面。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(150,156,168)"></i>5 看不清</td><td>厚云、缺测黑块、条带等无法判读的地方。薄雾下地物还认得出来的照常标。混合格不算看不清。</td></tr>
+      <tr><td><i class="sw lc-unsure"></i>7 拿不准</td><td>看得见但定不了类（例如一格里两类差不多大）：先涂你最倾向的类别，再用 7 做记号。</td></tr>
+      <tr><td><i class="sw lc-shadow"></i>8 云影</td><td>云投下的阴影导致地物无法可靠判读，用这一项标出遮挡范围（训练时不用）。山影用“看不清”，并在质量原因选山影。</td></tr>
+      <tr><td><i class="sw" style="background:rgb(230,200,60)"></i>旧·耕地</td><td>以前按五类标过的期里会出现，<b>不能再用</b>：打开时已标黄，按这一期影像改成水面、植被或裸露土石，改完才能保存。</td></tr>
     </table>
-    <h4>怎么标最快</h4>
+    <h4>怎么标</h4>
     <ol class="small">
-      <li><b>先评整期质量</b>：看整幅影像，选清楚、模糊仍能看、局部看不清或基本看不清，填写原因后点“确认质量”。AI建议可以先填入选项，再由你确认；整体看不清时可点“确认看不清，保存并跳过”。旧标注没有质量判断的，会显示“未评定”，需要补评。局部遮挡涂出范围后再保存。</li>
-      <li><b>先标锚定期</b>（列表筛选“锚定期”，每个季度一期最清楚的，带 ★）：从 AI 预标开始，按 <b>J</b> 一片一片看黄斜线的地方——对的就用同一类点一下（黄斜线消失），错的改掉；再整幅扫一遍，保存。</li>
-      <li><b>再标其余各期</b>：打开后按 <b>P</b> 沿用前面最近一期已保存的标注。只有 AI 认为变了的地方、变化检测标了变化的地方换成这一期的预标并标黄，按 J 逐片看完就能保存。</li>
-      <li>超像素（S）适合大部分地方；边界不准的用画笔（D）补；一整片被 AI 认错类的用整片（F）一下改掉；形状清楚的施工区、水塘用套索（L）。</li>
-      <li>鼠标悬浮在影像上，会显示这一格当前标注的类别及待看、拿不准、云影等记号。左图换成上一期对照时，浮签仍对应当前期标签，旁边会注明。</li>
-      <li>保存后组长在右边“组长复核”里通过或退回；退回的期在列表筛选“组长退回的”里。</li>
+      <li><b>先评整期质量</b>：看整幅影像，选清楚程度并填原因后点“确认质量”。</li>
+      <li><b>先标试标期</b>（列表筛选“试标期”，每个测点春夏秋冬各一期，带“试”）：从 AI 预标开始，按 <b>J</b> 一片一片看黄斜线的地方——对的就用同一类点一下（黄斜线消失），错的改掉；再放大整幅从左上到右下扫一遍，保存。保存后在登记表里记一行：测点、日期、用时、拿不准最多的地物。</li>
+      <li><b>以后标其余各期</b>（试标定稿后再开始）：打开后按 <b>P</b> 沿用前面最近一期已保存的人工标注；AI 按这一期影像判得不一样的格会标黄，<b>类别没动</b>，逐片看图决定改不改。</li>
+      <li>超像素（S）适合大部分地方；边界不准的用画笔（D）补；一整片认错的用整片（F）；形状清楚的施工区、水塘用套索（L）。</li>
+      <li><b>标的时候不看变化检测的标注和模型结果</b>：新标注要和它们独立，后面才能拿来比。发现明显的漏标变化，记进登记表。</li>
     </ol>
-    <h4>容易错的地方</h4>
+    <h4>容易错的地方（先看这几处）</h4>
     <ul class="small">
-      <li>当前 AI 预标主要依据本期光谱、多年用途及道路铁路位置，旧五类分割模型只作兜底。仍要看图核对村内树木、河边沙洲和窄路、铁路的边界与连续性。</li>
-      <li>冬季收割后的田、春季翻耕的田颜色像裸地，按耕地标；只有施工、取土这类才标裸露。</li>
-      <li>水面边缘按这一期的水边标，不要照搬别的期。</li>
+      <li>村庄：房子之间的树和菜地按实际标，不要整村涂红。</li>
+      <li>工地和采石场：灰白、浅黄的大片多半是裸露土石；只有浇了水泥、盖了房、铺了路的才是人工表面。</li>
+      <li>铁路：能看到的道床、桥按实际宽度标；道床碎石算裸露土石，水泥构筑、站台、桥面算人工表面；边坡长草的标植被。AI 预标里铁路线上的格都标了黄，要逐格看。</li>
+      <li>田：每一期按当期的样子标；AI 预标里由“耕地”改判来的格，作物长得一般（半绿）的都标了黄。</li>
+      <li>河边、塘边：水面边界按这一期的水边，不要沿用别的季节。</li>
       <li>没把握的地方宁可标“拿不准”，不要猜。</li>
     </ul>
     <div class="lb-row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="guideClose">关闭</button></div>

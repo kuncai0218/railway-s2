@@ -1,4 +1,6 @@
-// 地物精标台（2026-10-06）：逐期标 5 类地物（水体、植被、耕地、裸露、建成）+ 看不清，AI 预标打底，人工逐期改、存，组长复核。
+// 地物精标台（2026-10-06 起；2026-10-14 改四类覆盖）：逐期标“当期看到的地表”四类（水面、植被、裸露土石、人工表面）+ 看不清，AI 预标打底，人工逐期改、存，组长复核。
+// 四类沿用旧类码：0 水面、1 植被、3 裸露土石、4 人工表面；2（旧“耕地”）停用——旧标注里的耕地格打开时标黄，按当期改成水面/植被/裸露土石后才能保存。
+// “沿用上一期”只复制上一期的人工标注，AI 按这一期判得不一样的格标黄提醒；不读变化检测标注（新标注要和变化标注独立）。
 // 左：期次队列（测点、筛选、进度）；中：同一期两张同步缩放的图（左只看影像，右叠标注，两边都能涂）；右：这一期的统计、保存、复核、AI 说明。
 // 一期的标注从哪来（先找到的为准）：这台电脑上没保存的草稿（IndexedDB）→ 数据库 landcover 表里这一期最新的标注 → AI 预标（prefill_lc/）。
 // 保存：正式模式写 landcover 表（kind = label；组长复核 kind = review）；演示模式只存在这台电脑。数据库里还没有 landcover 表时只能用演示模式。
@@ -21,25 +23,27 @@ const QUALITY = { yes: '清楚', blurry: '整体模糊，但还能认出地物',
 const REASONS = { cloud: '云', cloud_shadow: '云影', haze: '雾 / 霾', terrain_shadow: '山影 / 阴影', missing: '黑块 / 缺测', stripe: '条纹', brightness: '太亮 / 太暗', blur: '模糊' };
 const SITE_NAME = { ZZ: '株洲南', HY: '衡阳北', SG: '韶关南' };
 const CLS = [
-  { v: 0, name: '水体', rgb: [40, 110, 220], key: '1' },
+  { v: 0, name: '水面', rgb: [40, 110, 220], key: '1' },
   { v: 1, name: '植被', rgb: [40, 150, 60], key: '2' },
-  { v: 2, name: '耕地', rgb: [230, 200, 60], key: '3' },
-  { v: 3, name: '裸露', rgb: [190, 120, 70], key: '4' },
-  { v: 4, name: '建成', rgb: [220, 40, 40], key: '5' },
-  { v: NONE, name: '看不清', rgb: [150, 156, 168], key: '6' },
+  { v: 3, name: '裸露土石', rgb: [190, 120, 70], key: '3' },
+  { v: 4, name: '人工表面', rgb: [220, 40, 40], key: '4' },
+  { v: NONE, name: '看不清', rgb: [150, 156, 168], key: '5' },
 ];
-const RGB = {}; for (const c of CLS) RGB[c.v] = c.rgb;
+const LEGACY = { v: 2, name: '旧·耕地（要改）', rgb: [230, 200, 60] };   // 只用于显示旧标注，不能再涂
+const SCHEMA = 'cover4-v1';
+const RGB = {}; for (const c of [...CLS, LEGACY]) RGB[c.v] = c.rgb;
+const clsNum = (c, v) => (v === NONE ? c.n[5] : c.n[v]);
 const TABLE = 'landcover';
 const MODE_KEY = 'rs2_lc_mode', SITE_KEY = 'rs2_lc_site', FILTER_KEY = 'rs2_lc_filter', NAME_KEY = 'rs2_lc_name';
 const FILL_ALPHA = [118, 58, 0];   // 涂色：浓 / 淡 / 只描边
 const FILL_NAME = ['涂色：浓', '涂色：淡', '只描边'];
 const GRID_MIN_SCALE = 6;
 
-let mode = 'demo', site = 'ZZ', filter = 'anchor', who = '';
+let mode = 'demo', site = 'ZZ', filter = 'pilot', who = '';
 try {
   mode = localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo';
   site = localStorage.getItem(SITE_KEY) || 'ZZ';
-  filter = localStorage.getItem(FILTER_KEY) || 'anchor';
+  filter = localStorage.getItem(FILTER_KEY) || 'pilot';
   who = localStorage.getItem(NAME_KEY) || '';
 } catch { /* storage blocked */ }
 if (!SITE_ORDER.includes(site)) site = 'ZZ';
@@ -332,17 +336,6 @@ function aiOf(code, date) {
   return pr;
 }
 const hardOcclusion = id => id === 1 || id === 3 || id === 4;
-let cdIndex = null;
-async function cdMap(code, date) {
-  cdIndex = cdIndex || fetch('prefill/index.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
-  const info = (await cdIndex)?.[code];
-  if (!info || !(info.dates || []).includes(date)) return null;
-  const d = await loadPixels(`prefill/${code}/${date}.png?v=${encodeURIComponent(info.version || '')}`);
-  if (!d) return null;
-  const m = new Uint8Array(N);
-  for (let i = 0; i < N; i++) { const v = d[i * 4]; m[i] = v < 50 ? 0 : v < 150 ? 1 : 2; }
-  return m;
-}
 // 超像素索引：编号 k 的像元 = list[start[k] .. start[k+1])
 function spIndex(sp) {
   let max = 0;
@@ -542,7 +535,7 @@ class Viewer {
     const src = this.labels ? w.lab : w.ai.cls;
     const outline = this.labels && sc.fill === 2;
     const EDGE = col(15, 18, 24, 170), YEL = col(255, 214, 0, 235), WHT = col(255, 255, 255, 225), VIO = col(196, 181, 253, 240);
-    const CC = {}; for (const c of CLS) CC[c.v] = col(c.rgb[0], c.rgb[1], c.rgb[2], 255);
+    const CC = {}; for (const c of [...CLS, LEGACY]) CC[c.v] = col(c.rgb[0], c.rgb[1], c.rgb[2], 255);
     for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
       const i = y * SIZE + x, v = src[i], base = (y * 4) * S4 + x * 4;
       if (this.labels) {
@@ -625,7 +618,7 @@ class Viewer {
     const inside = p && p.viewer === this.index && xImage >= 0 && yImage >= 0 && xImage < SIZE && yImage < SIZE && p.mx >= 0 && p.my >= 0 && p.mx < r.width && p.my < r.height;
     this.hoverTip.hidden = !inside || !w || switching;
     if (this.hoverTip.hidden) return;
-    const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || CLS[5];
+    const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || (w.lab[i] === LEGACY.v ? LEGACY : CLS[CLS.length - 1]);
     const label = w.shadow[i] ? '云影 · 看不清' : w.whole[i] ? '看不清 · 整期不可判' : w.lab[i] === NONE && w.ai?.occlusion?.[i] === 1 ? '云遮挡 · 看不清' : cls.name;
     const marks = [w.uns[i] ? '拿不准' : '', w.todo[i] && !w.tch[i] && w.lab[i] !== NONE ? '待看' : ''].filter(Boolean);
     this.hoverTitle.textContent = `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
@@ -801,6 +794,9 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   if (seq !== openSeq || openMode !== mode) return;
   const sameSite = W && W.code === code;
   W = { ...w, mode: openMode, qEditing: w.qEditing ?? !w.quality, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null };
+  let nLegacy = 0;
+  for (let i = 0; i < N; i++) if (W.lab[i] === LEGACY.v) { W.todo[i] = 1; W.tch[i] = 0; nLegacy++; }
+  if (nLegacy) setTimeout(() => toast(`这一期有 ${fmtN(nLegacy)} 格旧“耕地”标注（黄）：按这一期影像改成水面、植被或裸露土石后才能保存。`), 300);
   scene.rail = sites[code].railway?.lines || [];
   scene.jumpAt = -1; scene.flash = null;
   setImages();
@@ -843,8 +839,8 @@ function countsOf(w) {
 function renderCounts() {
   if (!W) return;
   const c = countsOf(W), valid = N - c.n[5];
-  $('pBars').innerHTML = CLS.map((k, j) => {
-    const m = c.n[j], frac = j < 5 ? (valid ? m / valid : 0) : m / N;
+  $('pBars').innerHTML = [...CLS, ...(c.n[LEGACY.v] ? [LEGACY] : [])].map(k => {
+    const m = clsNum(c, k.v), frac = k.v !== NONE ? (valid ? m / valid : 0) : m / N;
     return `<div class="row"><span><i class="sw" style="background:rgb(${k.rgb})"></i> ${k.name}</span><span class="bar"><i style="width:${(frac * 100).toFixed(1)}%;background:rgb(${k.rgb})"></i></span>`
       + `<span class="num">${(frac * 100).toFixed(1)}%</span></div>`;
   }).join('');
@@ -889,7 +885,7 @@ function applyOcclusionSuggestion() {
 }
 function renderPalette(c) {
   const valid = c ? N - c.n[5] : 0;
-  const items = [...CLS.map((k, j) => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (j < 5 ? pct(c.n[j], valid) : pct(c.n[5], N)) : '' })),
+  const items = [...CLS.map(k => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (k.v !== NONE ? pct(c.n[k.v], valid) : pct(c.n[5], N)) : '' })),
     { v: UNSURE, name: '拿不准', key: '7', cls: 'lc-unsure', pct: c ? fmtN(c.uns) : '' },
     { v: SHADOW, name: '云影', key: '8', cls: 'lc-shadow', pct: c ? pct(c.shadow, N) : '' }];
   $('palette').innerHTML = items.map(t => `<button data-v="${t.v}" class="${scene.brush === t.v ? 'on' : ''}" title="快捷键 ${t.key}"><i class="sw ${t.cls || ''}" style="${t.sw || ''}"></i>${t.name}<kbd>${t.key}</kbd><span class="pct">${t.pct}</span></button>`).join('');
@@ -913,6 +909,7 @@ function renderPanel() {
   const anchor = (AIX?.[code]?.anchors || []).includes(p.date);
   $('pTitle').textContent = `${SITE_NAME[code]} · ${fmtDate(p.date)}（第 ${k} 期）`;
   const tags = [`${p.satellite || ''} ${p.orbit || ''}`.trim()];
+  if ((AIX?.[code]?.pilot || []).includes(p.date)) tags.push('★ 试标期');
   if (anchor) tags.push('★ 锚定期');
   if (p.hazy) tags.push('有雾');
   if ((p.glint ?? 99) < 18) tags.push('水面反光');
@@ -1070,12 +1067,14 @@ function confirmQuality() {
 }
 function validateWork(w = W) {
   if (!requireQuality()) return false;
-  if (w.quality.status === 'partial' && countsOf(w).n[5] === 0) { err('局部看不清：请先用“云影 8”或“看不清 6”涂出遮挡范围。'); return false; }
+  const nLegacy = countsOf(w).n[LEGACY.v];
+  if (nLegacy) { err(`还有 ${fmtN(nLegacy)} 格旧“耕地”没改：四类规则里耕地不再是一类，按这一期影像改成水面、植被或裸露土石再保存（按 J 逐片找）。`); return false; }
+  if (w.quality.status === 'partial' && countsOf(w).n[5] === 0) { err('局部看不清：请先用“云影 8”或“看不清 5”涂出遮挡范围。'); return false; }
   return true;
 }
 async function payloadOf(w) {
   const c = countsOf(w), quality = w.quality, from = w.src, by = who || null, enc = await encodeMap(w);
-  const meta = { n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, cloud_shadow: c.shadow, whole_mask_v: 1, legacy_whole: !!w.legacyWhole, quality, ai: AIX?.version || null, from, by, date: w.p.date };
+  const meta = { schema: SCHEMA, n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, cloud_shadow: c.shadow, whole_mask_v: 1, legacy_whole: !!w.legacyWhole, quality, ai: AIX?.version || null, from, by, date: w.p.date };
   return { v: 'lc1', enc: enc.enc, map: enc.map, meta };
 }
 function download(blob, name) {
@@ -1149,9 +1148,10 @@ function renderReview() {
 
 // ---------------------------------------------------------------- 队列
 function periodsShown(code = site) {
-  const anchors = new Set(AIX?.[code]?.anchors || []);
+  const anchors = new Set(AIX?.[code]?.anchors || []), pilot = new Set(AIX?.[code]?.pilot || []);
   return (P[code] || []).map((p, k) => ({ p, k })).filter(({ p }) => {
     const st = stateOf(code, p);
+    if (filter === 'pilot') return pilot.has(p.date);
     if (filter === 'anchor') return anchors.has(p.date);
     if (filter === 'todo') return st === 'todo' || st === 'draft';
     if (filter === 'all') return true;
@@ -1172,7 +1172,7 @@ function renderList() {
   $('progText').textContent = `${SITE_NAME[site]}：已保存 ${saved} / ${all.length} 期，组长通过 ${ok}${mode === 'demo' ? '（演示）' : ''}；列表 ${shown.length} 期`;
   const L = $('qList');
   if (!shown.length) { L.innerHTML = '<div class="tiny" style="padding:8px">这个筛选下没有期了。</div>'; return; }
-  const anchors = new Set(AIX?.[site]?.anchors || []);
+  const anchors = new Set(AIX?.[site]?.anchors || []), pilotSet = new Set(AIX?.[site]?.pilot || []);
   let html = '', lastY = '';
   for (const { p, k } of shown) {
     const y = p.date.slice(0, 4);
@@ -1182,7 +1182,7 @@ function renderList() {
     const q = normaliseQuality(lab?.meta?.quality);
     const sub = lab ? `${esc(lab.meta?.by || '没留名')} · ${q ? QUALITY[q.status] : '质量未评'} · 改 ${fmtN(lab.meta?.edited)} 格${lab.meta?.todo ? ` · 留黄 ${fmtN(lab.meta.todo)}` : ''}`
       : `AI 拿不准 ${info.unc != null ? Math.round(info.unc * 100) : '—'}% · 看不清 ${info.none != null ? Math.round(info.none * 100) : '—'}%`;
-    html += `<button data-k="${k}" class="${W && W.code === site && W.k === k ? 'cur' : ''}"><span class="t">${fmtDate(p.date).slice(5)}${anchors.has(p.date) ? '<span class="star">★</span>' : ''}${p.hazy ? ' · 雾' : ''}</span>`
+    html += `<button data-k="${k}" class="${W && W.code === site && W.k === k ? 'cur' : ''}"><span class="t">${fmtDate(p.date).slice(5)}${pilotSet.has(p.date) ? '<span class="star">试</span>' : ''}${anchors.has(p.date) ? '<span class="star">★</span>' : ''}${p.hazy ? ' · 雾' : ''}</span>`
       + `<span class="st ${st}" title="${ST_TITLE[st]}">${ST_TEXT[st]}</span><small>${sub}</small></button>`;
   }
   L.innerHTML = html;
@@ -1209,34 +1209,34 @@ function step(dir) {
 
 // ---------------------------------------------------------------- 整期操作
 async function inheritPrev() {
+  // 2026-10-14 改：只复制上一期的人工标注，不再按“AI 认为变了 / 变化检测标了变化”换成 AI 预标；不读变化检测标注。
+  // AI 按这一期影像判得和上一期人工标注不一样的格只标黄提醒（类别保持上一期的），由人看图决定。
   if (!W || saving || !requireQuality() || W.quality.status === 'no') return;
   const w = W;
   const { code, k } = W;
   let j = -1;
   for (let q = k - 1; q >= 0; q--) if (LAT[`${code}|${P[code][q].scene_id}`]?.label) { j = q; break; }
-  if (j < 0) { toast('前面还没有保存过的期，不能沿用（先标锚定期）'); return; }
+  if (j < 0) { toast('前面还没有保存过的期，不能沿用（先标试标期或锚定期）'); return; }
   const pp = P[code][j];
   let prev;
   try { prev = await decodeMap(await labelData(LAT[`${code}|${pp.scene_id}`].label)); } catch (e) { err(`读不到 ${pp.date} 的标注：${e.message}`); return; }
-  const [aiPrev, cd] = await Promise.all([aiOf(code, pp.date), cdMap(code, w.p.date)]);
   if (W !== w || saving || !qualityReady(w)) return;
   const ai = W.ai;
-  if (!ai) { toast('这一期没有 AI 预标，不能按“AI 认为变了”沿用'); return; }
   ops.begin();
-  let nChg = 0, nCopy = 0;
+  let nSame = 0, nFlag = 0, nAi = 0;
   for (let i = 0; i < N; i++) {
     if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue; // 当前期人标遮挡不能被上一期/预标填补
-    const a1 = ai.cls[i], a0 = aiPrev ? aiPrev.cls[i] : NONE, h0 = prev.lab[i];
-    W.tch[i] = 0; W.uns[i] = 0; W.shadow[i] = ai.shadow[i];
-    if (a1 === NONE) { W.lab[i] = NONE; W.todo[i] = 0; continue; }
-    const changed = (a0 !== NONE && a1 !== a0) || (!!cd && cd[i] > 0);
-    if (changed || h0 === NONE) { W.lab[i] = a1; W.todo[i] = changed || ai.unc[i] ? 1 : 0; if (changed) nChg++; }
-    else { W.lab[i] = h0; W.todo[i] = 0; W.uns[i] = prev.uns[i]; nCopy++; }
+    const a1 = ai ? ai.cls[i] : NONE, h0 = prev.lab[i];
+    W.tch[i] = 0; W.uns[i] = 0; W.shadow[i] = ai ? ai.shadow[i] : 0;
+    if (ai && a1 === NONE) { W.lab[i] = NONE; W.todo[i] = 0; continue; }      // 这一期看不清（云、缺测）
+    if (h0 === NONE || h0 === LEGACY.v) { W.lab[i] = ai ? a1 : NONE; W.todo[i] = 1; nAi++; continue; }   // 上一期没有可用的人工类别
+    W.lab[i] = h0; W.uns[i] = prev.uns[i];
+    if (ai && a1 !== h0) { W.todo[i] = 1; nFlag++; } else { W.todo[i] = 0; nSame++; }
   }
   ops.n = 1;
   W.src = `prev:${pp.date}`;
   ops.end();
-  toast(`已沿用 ${fmtDate(pp.date)}：照搬 ${fmtN(nCopy)} 格；AI 认为变了的 ${fmtN(nChg)} 格换成这一期的预标并标黄${cd ? '（含变化检测标了变化的格）' : ''}。Ctrl+Z 可以撤销`);
+  toast(`已沿用 ${fmtDate(pp.date)} 的人工标注 ${fmtN(nSame + nFlag)} 格，其中 AI 按这一期影像判得不一样的 ${fmtN(nFlag)} 格标黄（类别没动，看图再定）；上一期没有人工类别的 ${fmtN(nAi)} 格用这一期 AI 预标并标黄。Ctrl+Z 可以撤销`);
 }
 function resetAi() {
   if (!W || saving || !requireQuality() || W.quality.status === 'no') return;
@@ -1471,6 +1471,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); step(-1); return; }
   const cls = CLS.find(c => c.key === k);
   if (cls) { setBrush(cls.v); return; }
+  if (k === '6') { setBrush(NONE); return; }
   if (k === '7') { setBrush(UNSURE); return; }
   if (k === '8') { setBrush(SHADOW); return; }
   if (k === 's') setTool('sp');
