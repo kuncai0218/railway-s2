@@ -43,7 +43,7 @@ const GRID_MIN_SCALE = 6;
 
 let mode = 'live', site = 'ZZ', filter = 'all', who = '';
 try {
-  mode = localStorage.getItem(MODE_KEY) === 'demo' ? 'demo' : 'live';
+  mode = 'live';   // 10-14：每次打开都是正式模式，不读上次存的选择
   site = localStorage.getItem(SITE_KEY) || 'ZZ';
   filter = localStorage.getItem(FILTER_KEY) || 'all';
   if (filter === 'pilot') filter = 'all';   // 10-14 去掉试标期
@@ -1447,7 +1447,7 @@ $('guideSkip').onchange = e => { try { localStorage.setItem(GUIDE_KEY, e.target.
 function renderMode() { const b = $('modeBtn'); b.className = `mode-btn ${mode}`; b.textContent = mode === 'live' ? '正式模式' : '演示模式'; }
 $('modeBtn').onclick = () => {
   if (saving || switching) return;
-  if (mode === 'live') { setMode('demo'); toast('已切换到演示模式：保存只存在这台电脑'); return; }
+  if (mode === 'live') { if (!confirm('切换到演示模式？\n演示模式下保存、复核只存在这台电脑，不进数据库；下次打开页面会自动回到正式模式。')) return; setMode('demo'); toast('已切换到演示模式：保存只存在这台电脑；下次打开会回到正式模式'); return; }
   if (tableReady === false) { toast('数据库里还没有 landcover 表，暂时不能用正式模式'); return; }
   $('modeModal').classList.add('show');
 };
@@ -1463,7 +1463,6 @@ async function setMode(m) {
     ++openSeq;
     mode = m;
     await loadDraftKeys();
-    try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     recompute(); renderMode(); renderSites(); renderList();
     if (W) { const { code, k } = W; W = null; await openPeriod(code, k, { duringModeSwitch: true }); }
   } finally { switching = false; renderBusy(); if (W) renderQuality(); }

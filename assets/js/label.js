@@ -21,9 +21,9 @@ const KEY_STORE = 'rs2_ai_key';
 const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 const SITE_NAME = { ZZ: '株洲南', HY: '衡阳北', SG: '韶关南' };
 
-let mode = 'demo', site = 'ZZ', fType = 'todo', fTag = '';
+let mode = 'live', site = 'ZZ', fType = 'todo', fTag = '';
 try {
-  mode = localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo';
+  mode = 'live';   // 10-14：每次打开都是正式模式，不读上次存的选择
   site = localStorage.getItem(SITE_KEY) || 'ZZ';
   fType = localStorage.getItem(FILTER_KEY) || 'todo';
 } catch { /* storage blocked */ }
@@ -530,14 +530,13 @@ function renderMode() {
   b.textContent = mode === 'live' ? '正式模式' : '演示模式';
 }
 $('modeBtn').onclick = () => {
-  if (mode === 'live') { setMode('demo'); toast('已切换到演示模式：保存只存在这台电脑'); return; }
+  if (mode === 'live') { if (!confirm('切换到演示模式？\n演示模式下保存、复核只存在这台电脑，不进数据库；下次打开页面会自动回到正式模式。')) return; setMode('demo'); toast('已切换到演示模式：保存只存在这台电脑；下次打开会回到正式模式'); return; }
   $('modeModal').classList.add('show');
 };
 $('modeCancel').onclick = () => $('modeModal').classList.remove('show');
 $('modeOk').onclick = () => { $('modeModal').classList.remove('show'); setMode('live'); toast('已切换到正式模式：保存会写入数据库'); };
 function setMode(m) {
   mode = m;
-  try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
   for (const k of Object.keys(work)) delete work[k];
   recompute(); buildItems(); renderMode(); renderSites(); renderList();
   if (cur) { const o = items.find(it => it.key === cur.key); cur = null; if (o) open(o); }

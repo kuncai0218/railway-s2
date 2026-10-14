@@ -33,8 +33,8 @@ let mine = null, prop = null, curS3 = null, blink = false;
 let refDate = null, curPrevQ = [];   // 左图临时换成的“最近一张清楚影像”（10-01 夜分歧复核）
 let curBef = null;                    // 这一对的前图（2026-10-03）：上一期被挡住时自动换成最近一张看得清的（store.js imageBefore）
 const latestFb = (code, sid) => reviewsOf(code, sid).filter(isFb).sort((a, b) => (isAfter(a, b) ? 1 : -1)).pop() || null;
-let mode = 'demo';
-try { mode = localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo'; site = localStorage.getItem(SITE_KEY) || 'ZZ'; } catch { /* storage blocked */ }
+let mode = 'live';   // 10-14：每次打开都是正式模式，不读上次存的选择
+try { site = localStorage.getItem(SITE_KEY) || 'ZZ'; } catch { /* storage blocked */ }
 
 const scene = new Scene();
 const va = scene.addViewer($('vA'));
@@ -819,11 +819,11 @@ function renderMode() {
   b.className = `mode-btn ${mode === 'live' ? 'live' : 'demo'}`;
 }
 $('modeBtn').onclick = () => {
-  if (mode === 'live') { mode = 'demo'; try { localStorage.setItem(MODE_KEY, 'demo'); } catch { /* ignore */ } renderMode(); renderList(); if (cur) open(cur, true); toast('已切换到演示模式'); return; }
+  if (mode === 'live') { if (!confirm('切换到演示模式？\n演示模式下保存、复核只存在这台电脑，不进数据库；下次打开页面会自动回到正式模式。')) return; mode = 'demo'; renderMode(); renderList(); if (cur) open(cur, true); toast('已切换到演示模式'); return; }
   $('modeModal').classList.add('show');
 };
 $('modeCancel').onclick = () => $('modeModal').classList.remove('show');
-$('modeOk').onclick = () => { mode = 'live'; try { localStorage.setItem(MODE_KEY, 'live'); } catch { /* ignore */ } $('modeModal').classList.remove('show'); renderMode(); renderList(); if (cur) open(cur, true); toast('已切换到正式模式：决定会写入数据库'); };
+$('modeOk').onclick = () => { mode = 'live'; $('modeModal').classList.remove('show'); renderMode(); renderList(); if (cur) open(cur, true); toast('已切换到正式模式：决定会写入数据库'); };
 $('helpBtn').onclick = () => $('helpModal').classList.add('show');
 $('helpClose').onclick = () => $('helpModal').classList.remove('show');
 document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => setView(b.dataset.view));
