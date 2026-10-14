@@ -34,14 +34,15 @@ const SCHEMA = 'cover4-v1';
 const RGB = {}; for (const c of [...CLS, LEGACY]) RGB[c.v] = c.rgb;
 const clsNum = (c, v) => (v === NONE ? c.n[5] : c.n[v]);
 const TABLE = 'landcover';
-const MODE_KEY = 'rs2_lc_mode', SITE_KEY = 'rs2_lc_site', FILTER_KEY = 'rs2_lc_filter', NAME_KEY = 'rs2_lc_name';
+// 10-14 起默认正式模式；换了存储键名，以前在这台电脑上选过“演示”的也回到正式模式
+const MODE_KEY = 'rs2_lc_mode2', SITE_KEY = 'rs2_lc_site', FILTER_KEY = 'rs2_lc_filter', NAME_KEY = 'rs2_lc_name';
 const FILL_ALPHA = [118, 58, 0];   // 涂色：浓 / 淡 / 只描边
 const FILL_NAME = ['涂色：浓', '涂色：淡', '只描边'];
 const GRID_MIN_SCALE = 6;
 
-let mode = 'demo', site = 'ZZ', filter = 'pilot', who = '';
+let mode = 'live', site = 'ZZ', filter = 'pilot', who = '';
 try {
-  mode = localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo';
+  mode = localStorage.getItem(MODE_KEY) === 'demo' ? 'demo' : 'live';
   site = localStorage.getItem(SITE_KEY) || 'ZZ';
   filter = localStorage.getItem(FILTER_KEY) || 'pilot';
   who = localStorage.getItem(NAME_KEY) || '';
@@ -918,22 +919,28 @@ function renderPanel() {
   renderSrc();
   renderQuality();
   renderCounts();
-  const banner = [];
-  if (tableReady === false) banner.push('数据库里还没有地物标注的表（landcover），现在只能用演示模式：标注只存在这台电脑。组长在 Supabase 运行 supabase_landcover.sql 后刷新，就能用正式模式。');
-  if (!W.ai) banner.push('这一期没有 AI 预标，只能从空白开始标。');
-  if (W.ai?.occlusionMissing) banner.push('这一期的云遮挡建议图暂未加载，当前标注保持原样；刷新页面后重试。');
-  $('banner').hidden = !banner.length;
-  $('banner').innerHTML = banner.map(esc).join('<br>');
+  renderBanner();
   renderReview();
   const rules = Object.entries(info.rules || {}).map(([k2, v]) => `${k2} ${fmtN(v)} 格`).join('；');
   $('pAi').innerHTML = `这一期 AI 预标：拿不准 ${info.unc != null ? Math.round(info.unc * 100) + '%' : '—'}，看不清 ${info.none != null ? Math.round(info.none * 100) + '%' : '—'}。`
     + (rules ? `<br>按这一期光谱和多年用途改过的：${esc(rules)}。` : '')
     + (info.flick ? `<br>单期跳变清理 ${fmtN(info.flick)} 格（前后两期一致、只有这一期不同，改成前后的类别，标成拿不准）。` : '')
     + (info.sp ? `<br>超像素统一 ${fmtN(info.sp)} 格（这一期共 ${fmtN(info.nsp)} 块）。` : '')
-    + `<br><span class="tiny">${esc(AIX?.note || '')}。当前预标主要依据本期光谱、多年用途及道路铁路位置；9月Swin模型只作兜底。预标仍需逐期看图核对，尤其注意村内树木、沙洲和窄路。</span>`;
-  $('modeNote').innerHTML = mode === 'demo' ? '演示模式：保存、复核都只存在这台电脑，不写数据库。右上角可以换成正式模式。'
-    : '正式模式：保存会把这一期写进数据库（landcover 表），旧版本保留，同一期取最新一条。';
+    + `<br><span class="tiny">${esc(AIX?.note || '')}。当前预标主要依据本期光谱、多年用途及道路铁路位置；9月Swin模型只作兜底。</span>`
+    + '<br><b>AI 哪里容易错（10-14 抽查）：</b>水面、植被大多是对的；裸露土石错得不少；人工表面大多是错的（多半其实是铁路道床碎石、灰白土石，或村里的树）。先查红色、再查棕色、再看水边，最后扫一遍植被。';
+  $('modeNote').innerHTML = mode === 'demo' ? '演示模式：保存、复核都只存在这台电脑，不写数据库。右上角可以换回正式模式。'
+    : '正式模式：保存会把这一期写进数据库（landcover 表，记标注人），旧版本保留，同一期取最新一条。只想试试操作的，可以点右上角换成演示模式。';
   $('whoInput').value = who;
+}
+function renderBanner() {
+  if (!W) return;
+  const banner = [];
+  if (tableReady === false) banner.push('数据库里还没有地物标注的表（landcover），现在只能用演示模式：标注只存在这台电脑。组长在 Supabase 运行 supabase_landcover.sql 后刷新，就能用正式模式。');
+  if (mode === 'live' && tableReady !== false && !who) banner.push('先在右边“标注人”填上你的名字：正式模式下不填名字存不了。');
+  if (!W.ai) banner.push('这一期没有 AI 预标，只能从空白开始标。');
+  if (W.ai?.occlusionMissing) banner.push('这一期的云遮挡建议图暂未加载，当前标注保持原样；刷新页面后重试。');
+  $('banner').hidden = !banner.length;
+  $('banner').innerHTML = banner.map(esc).join('<br>');
 }
 function qualityFormValue() {
   const q = { status: $('qualityStatus').value, reasons: [...document.querySelectorAll('input[name="qualityReason"]:checked')].map(i => i.value), note: $('qualityNote').value.trim().slice(0, 500) };
@@ -1313,6 +1320,7 @@ async function savePeriod(goNext = false) {
   if (!W || saving || switching) return false;
   if (W.mode !== mode || !validateWork()) return false;
   if (mode === 'live' && !tableReady) { err('数据库里还没有 landcover 表，正式模式存不了。先用演示模式，或请组长运行 supabase_landcover.sql。'); return false; }
+  if (mode === 'live' && !who) { err('正式模式要先在右边“标注人”填上你的名字，再保存。'); $('whoInput').focus(); return false; }
   const w = W, key = `${w.code}|${w.p.scene_id}`;
   let completed = false;
   saving = true;
@@ -1360,6 +1368,7 @@ async function review(decision) {
   if (!s?.label) return;
   if (decision === 'confirmed' && (!normaliseQuality(s.label.meta?.quality) || W.dirty || W.qEditing)) { err('请先补评整期质量并保存当前修改，再通过这份标注。'); return; }
   if (mode === 'live' && !tableReady) { err('数据库里还没有 landcover 表，正式模式存不了。'); return; }
+  if (mode === 'live' && !who) { err('先在右边“标注人”填上你的名字，再通过或退回。'); $('whoInput').focus(); return; }
   const comment = $('rvText').value.trim();
   if (decision === 'returned' && !comment) { err('退回请写一句原因。'); return; }
   const meta = { label_id: s.label.id, decision, comment: comment || null, by: who || null };
@@ -1427,7 +1436,7 @@ $('resetBtn').onclick = resetAi;
 $('dropBtn').onclick = dropDraft;
 $('rvOk').onclick = () => review('confirmed');
 $('rvBack').onclick = () => review('returned');
-$('whoInput').onchange = e => { who = e.target.value.trim().slice(0, 20); try { localStorage.setItem(NAME_KEY, who); } catch { /* ignore */ } };
+$('whoInput').oninput = e => { who = e.target.value.trim().slice(0, 20); try { localStorage.setItem(NAME_KEY, who); } catch { /* ignore */ } renderBanner(); };
 $('fType').value = filter;
 $('fType').onchange = e => { filter = e.target.value; try { localStorage.setItem(FILTER_KEY, filter); } catch { /* ignore */ } renderList(); };
 $('helpBtn').onclick = () => $('helpModal').classList.add('show');
