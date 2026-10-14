@@ -1,5 +1,6 @@
-// 地物精标台（2026-10-06 起；2026-10-14 改四类覆盖）：逐期标“当期看到的地表”四类（水面、植被、裸露土石、人工表面）+ 看不清，AI 预标打底，人工逐期改、存，组长复核。
-// 四类沿用旧类码：0 水面、1 植被、3 裸露土石、4 人工表面；2（旧“耕地”）停用——旧标注里的耕地格打开时标黄，按当期改成水面/植被/裸露土石后才能保存。
+// 地物精标台（2026-10-06 起）：逐期标五类（水体、植被、耕地、裸露地表、建成区）+ 看不清，AI 预标打底，人工逐期改、存，组长复核。
+// 10-14 晚用户定回五类（同 8 月那批 98 景）：类码 0 水体、1 植被、2 耕地、3 裸露地表、4 建成区。耕地按用途标——同一块田不管这一期长庄稼、翻耕还是灌水都标耕地；
+//   其余四类按这一期看到的地表。10-14 白天按四类（cover4-v1，没有耕地）存的期打开时，AI 判耕地而存的是水体 / 植被 / 裸露地表的格标黄，看过再存。
 // “沿用上一期”只复制上一期的人工标注，AI 按这一期判得不一样的格标黄提醒；不读变化检测标注（新标注要和变化标注独立）。
 // 左：期次队列（测点、筛选、进度）；中：同一期两张同步缩放的图（左只看影像，右叠标注，两边都能涂）；右：这一期的统计、保存、复核、AI 说明。
 // 一期的标注从哪来（先找到的为准）：这台电脑上没保存的草稿（IndexedDB）→ 数据库 landcover 表里这一期最新的标注 → AI 预标（prefill_lc/）。
@@ -7,6 +8,8 @@
 // 存的格式：data = { v: 'lc1', enc: 'gz' | 'raw', map: base64, meta }；map 解开是 65536 个字节，一个字节一格（行优先）：
 //   低 3 位 = 类别（0—4，7 = 看不清），bit3 = 拿不准，bit4 = 人动过，bit5 = 待看，bit6 = 云 / 云影遮挡（10-14 起云和云影合成一项），bit7 = 整期质量自动屏蔽（低3位仍为7，旧解码器仍读255）。
 //   整期质量写 meta.quality；旧记录没有此字段时保持未评定。草稿按 demo/live 分开。
+// 10-14 晚起株洲南、韶关南只标观察范围（sites.json 的 aoi，河右岸、铁路这一侧），衡阳北整幅：范围外压暗、涂不上、不计数，
+//   保存时范围外一律写 7（看不清、不带标记），meta.scope 记 'aoi_v2' / 'full_frame'；用这些标注时要按同一个范围掩膜（scopeOf）取。
 import { append, uuid, clientId } from './api.js';
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION, SITE_ORDER } from './config.js';
 import { loadSites, loadPeriods, loadReadings, latestByScene, fmtDate, fmtTime } from './store.js';
@@ -23,15 +26,16 @@ const QUALITY = { yes: '清楚', blurry: '整体模糊，但还能认出地物',
 const REASONS = { cloud: '云', cloud_shadow: '云影', haze: '雾 / 霾', terrain_shadow: '山影 / 阴影', missing: '黑块 / 缺测', stripe: '条纹', brightness: '太亮 / 太暗', blur: '模糊' };
 const SITE_NAME = { ZZ: '株洲南', HY: '衡阳北', SG: '韶关南' };
 const CLS = [
-  { v: 0, name: '水面', rgb: [40, 110, 220], key: '1' },
+  { v: 0, name: '水体', rgb: [40, 110, 220], key: '1' },
   { v: 1, name: '植被', rgb: [40, 150, 60], key: '2' },
-  { v: 3, name: '裸露土石', rgb: [190, 120, 70], key: '3' },
-  { v: 4, name: '人工表面', rgb: [220, 40, 40], key: '4' },
-  { v: NONE, name: '看不清', rgb: [150, 156, 168], key: '5' },
+  { v: 2, name: '耕地', rgb: [225, 195, 95], key: '3' },
+  { v: 3, name: '裸露地表', rgb: [170, 105, 60], key: '4' },
+  { v: 4, name: '建成区', rgb: [220, 40, 40], key: '5' },
+  { v: NONE, name: '看不清', rgb: [150, 156, 168], key: '6' },
 ];
-const LEGACY = { v: 2, name: '旧·耕地（要改）', rgb: [230, 200, 60] };   // 只用于显示旧标注，不能再涂
-const SCHEMA = 'cover4-v1';
-const RGB = {}; for (const c of [...CLS, LEGACY]) RGB[c.v] = c.rgb;
+const CROP = 2;
+const SCHEMA = 'cover5-v1';
+const RGB = {}; for (const c of CLS) RGB[c.v] = c.rgb;
 const clsNum = (c, v) => (v === NONE ? c.n[5] : c.n[v]);
 const TABLE = 'landcover';
 // 10-14 起默认正式模式；换了存储键名，以前在这台电脑上选过“演示”的也回到正式模式
@@ -143,8 +147,8 @@ function b64(bytes) {
 }
 function unb64(s) { const b = atob(s); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
 function packMap(w) {
-  const a = new Uint8Array(N);
-  for (let i = 0; i < N; i++) a[i] = (w.quality?.status === 'no' || w.shadow?.[i] || w.whole?.[i] || w.lab[i] === NONE ? 7 : w.lab[i]) | (w.uns[i] << 3) | (w.tch[i] << 4) | ((w.todo[i] && !w.tch[i] ? 1 : 0) << 5) | ((w.shadow?.[i] ? 1 : 0) << 6) | ((w.whole?.[i] ? 1 : 0) << 7);
+  const a = new Uint8Array(N), sc = scopeOf(w.code).m;
+  for (let i = 0; i < N; i++) a[i] = !sc[i] ? 7 : (w.quality?.status === 'no' || w.shadow?.[i] || w.whole?.[i] || w.lab[i] === NONE ? 7 : w.lab[i]) | (w.uns[i] << 3) | (w.tch[i] << 4) | ((w.todo[i] && !w.tch[i] ? 1 : 0) << 5) | ((w.shadow?.[i] ? 1 : 0) << 6) | ((w.whole?.[i] ? 1 : 0) << 7);
   return a;
 }
 function unpackMap(a) {
@@ -216,7 +220,8 @@ async function loadDraftKeys() {
 function trainingMask(w) {
   const a = new Uint8Array(N).fill(NONE);
   if (!qualityReady(w) || w.quality.status === 'no') return a;
-  for (let i = 0; i < N; i++) if (!w.shadow[i] && !w.uns[i] && !(w.todo[i] && !w.tch[i]) && w.lab[i] <= 4) a[i] = w.lab[i];
+  const sc = scopeOf(w.code).m;
+  for (let i = 0; i < N; i++) if (sc[i] && !w.shadow[i] && !w.uns[i] && !(w.todo[i] && !w.tch[i]) && w.lab[i] <= 4) a[i] = w.lab[i];
   return a;
 }
 
@@ -351,6 +356,26 @@ function spIndex(sp) {
   return { start, list };
 }
 const spPixels = (w, id) => w.spx.list.subarray(w.spx.start[id], w.spx.start[id + 1]);
+// 要标的范围：像元中心在 aoi 多边形内算范围内。判法照搬 matplotlib contains_points（向 +x 射线数交点），
+// 和 Python 的 common.aoi_mask、landcover_fine_20261006\脚本\scope_aoi_r7.py 逐格一致；没有 aoi 的测点（衡阳北）整幅都标。
+const scopeCache = {};
+function scopeOf(code) {
+  if (scopeCache[code]) return scopeCache[code];
+  const ring = sites?.[code]?.aoi?.ring || null, m = new Uint8Array(N);
+  if (!ring) m.fill(1);
+  else for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+    const tx = x + 0.5, ty = y + 0.5;
+    let inside = false;
+    for (let i = 0, n = ring.length; i < n; i++) {
+      const [x0, y0] = ring[i], [x1, y1] = ring[(i + 1) % n], f0 = y0 >= ty, f1 = y1 >= ty;
+      if (f0 !== f1 && (((y1 - ty) * (x0 - x1) >= (x1 - tx) * (y0 - y1)) === f1)) inside = !inside;
+    }
+    m[y * SIZE + x] = inside ? 1 : 0;
+  }
+  let n = 0;
+  for (let i = 0; i < N; i++) n += m[i];
+  return (scopeCache[code] = { m, n, ring, aoi: !!ring });
+}
 
 // ---------------------------------------------------------------- 画布
 class Scene {
@@ -360,7 +385,7 @@ class Scene {
     this.ver = 0; this.detVer = 0;
     this.tool = 'sp'; this.brush = 1; this.size = 1;
     this.showLab = true; this.fill = 0; this.onlyTodo = false; this.aiLeft = false; this.showRail = true; this.grid = true; this.bare = false;
-    this.rail = [];
+    this.rail = []; this.aoi = null;
     this.hover = null; this.spaceDown = false; this.lasso = null; this.flash = null; this.jumpAt = -1;
     window.addEventListener('keydown', e => this._space(e, true));
     window.addEventListener('keyup', e => this._space(e, false));
@@ -418,9 +443,9 @@ class Viewer {
     this.stage.append(this.img, this.lab, this.det);
     const NS = 'http://www.w3.org/2000/svg';
     this.svg = document.createElementNS(NS, 'svg'); this.svg.setAttribute('class', 'viewer-svg'); this.svg.setAttribute('viewBox', `0 0 ${SIZE} ${SIZE}`);
-    this.gGrid = document.createElementNS(NS, 'g'); this.gRail = document.createElementNS(NS, 'g'); this.gFlash = document.createElementNS(NS, 'g');
+    this.gAoi = document.createElementNS(NS, 'g'); this.gGrid = document.createElementNS(NS, 'g'); this.gRail = document.createElementNS(NS, 'g'); this.gFlash = document.createElementNS(NS, 'g');
     this.gCursor = document.createElementNS(NS, 'g'); this.gCursor.setAttribute('pointer-events', 'none');
-    this.svg.append(this.gGrid, this.gRail, this.gFlash, this.gCursor);
+    this.svg.append(this.gAoi, this.gGrid, this.gRail, this.gFlash, this.gCursor);
     this.tag = document.createElement('div'); this.tag.className = 'viewer-tag';
     this.hoverTip = document.createElement('div'); this.hoverTip.className = 'lc-hover'; this.hoverTip.hidden = true;
     this.hoverTitle = document.createElement('strong'); this.hoverTitle.className = 'lc-hover-title';
@@ -513,9 +538,10 @@ class Viewer {
     ctx.clearRect(0, 0, SIZE, SIZE);
     if (!show) return;
     const img = ctx.createImageData(SIZE, SIZE), d = img.data;
-    const src = this.labels ? w.lab : w.ai.cls;
+    const src = this.labels ? w.lab : w.ai.cls, inScope = scopeOf(w.code).m;
     const a0 = this.labels ? FILL_ALPHA[sc.fill] : 120;
     if (a0) for (let i = 0; i < N; i++) {
+      if (!inScope[i]) continue;   // 范围外不涂色（SVG 层压暗）
       const c = this.labels && w.shadow[i] ? [113, 91, 151] : RGB[src[i]] || RGB[NONE];
       let a = a0;
       if (this.labels && sc.onlyTodo && !(w.todo[i] && !w.tch[i])) a = Math.round(a0 * 0.22);
@@ -535,12 +561,13 @@ class Viewer {
     if (!show) return;
     const img = ctx.createImageData(S4, S4), u = new Uint32Array(img.data.buffer);
     const col = (r, g, b, a) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
-    const src = this.labels ? w.lab : w.ai.cls;
+    const src = this.labels ? w.lab : w.ai.cls, inScope = scopeOf(w.code).m;
     const outline = this.labels && sc.fill === 2;
     const EDGE = col(15, 18, 24, 170), YEL = col(255, 214, 0, 235), WHT = col(255, 255, 255, 225), VIO = col(196, 181, 253, 240);
-    const CC = {}; for (const c of [...CLS, LEGACY]) CC[c.v] = col(c.rgb[0], c.rgb[1], c.rgb[2], 255);
+    const CC = {}; for (const c of CLS) CC[c.v] = col(c.rgb[0], c.rgb[1], c.rgb[2], 255);
     for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
       const i = y * SIZE + x, v = src[i], base = (y * 4) * S4 + x * 4;
+      if (!inScope[i]) continue;   // 范围外不画斜线和边界；和范围外相邻的边也不画（黄线标出了范围）
       if (this.labels) {
         const todo = w.todo[i] && !w.tch[i] && v !== NONE, uns = w.uns[i], shadow = w.shadow[i];
         if (todo || uns || shadow) for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
@@ -550,10 +577,10 @@ class Viewer {
         }
       }
       const ec = outline ? CC[v] : EDGE;
-      if (x < SIZE - 1 && src[i + 1] !== v) for (let sy = 0; sy < 4; sy++) u[base + sy * S4 + 3] = ec;
-      if (x > 0 && src[i - 1] !== v && outline) for (let sy = 0; sy < 4; sy++) u[base + sy * S4] = ec;
-      if (y < SIZE - 1 && src[i + SIZE] !== v) for (let sx = 0; sx < 4; sx++) u[base + 3 * S4 + sx] = ec;
-      if (y > 0 && src[i - SIZE] !== v && outline) for (let sx = 0; sx < 4; sx++) u[base + sx] = ec;
+      if (x < SIZE - 1 && inScope[i + 1] && src[i + 1] !== v) for (let sy = 0; sy < 4; sy++) u[base + sy * S4 + 3] = ec;
+      if (x > 0 && inScope[i - 1] && src[i - 1] !== v && outline) for (let sy = 0; sy < 4; sy++) u[base + sy * S4] = ec;
+      if (y < SIZE - 1 && inScope[i + SIZE] && src[i + SIZE] !== v) for (let sx = 0; sx < 4; sx++) u[base + 3 * S4 + sx] = ec;
+      if (y > 0 && inScope[i - SIZE] && src[i - SIZE] !== v && outline) for (let sx = 0; sx < 4; sx++) u[base + sx] = ec;
     }
     ctx.putImageData(img, 0, 0);
   }
@@ -563,12 +590,17 @@ class Viewer {
     const gridOn = sc.grid && !sc.bare && s >= GRID_MIN_SCALE;
     const r = this.box.getBoundingClientRect();
     const vis = gridOn ? [Math.max(0, Math.floor(-sc.view.tx / s)), Math.max(0, Math.floor(-sc.view.ty / s)), Math.min(SIZE, Math.ceil((r.width - sc.view.tx) / s)), Math.min(SIZE, Math.ceil((r.height - sc.view.ty) / s))] : null;
-    const key = `${sc.showRail && !sc.bare}|${sc.rail.length}|${vis}|${sc.flash?.d.length || 0}|${sc.bare}`;
+    const key = `${sc.showRail && !sc.bare}|${sc.rail.length}|${vis}|${sc.flash?.d.length || 0}|${sc.bare}|${W?.code}|${sc.aoi?.length || 0}`;
     if (key === this._svgKey) return;
     this._svgKey = key;
     const NS = 'http://www.w3.org/2000/svg';
     const path = (g, d, attrs) => { const e = document.createElementNS(NS, 'path'); e.setAttribute('d', d); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); g.appendChild(e); };
-    this.gGrid.innerHTML = ''; this.gRail.innerHTML = ''; this.gFlash.innerHTML = '';
+    this.gAoi.innerHTML = ''; this.gGrid.innerHTML = ''; this.gRail.innerHTML = ''; this.gFlash.innerHTML = '';
+    if (sc.aoi && !sc.bare) {   // 要标的范围：范围外压暗，黄虚线描边（和判读页、复核台一样）
+      const ring = sc.aoi.map(p => p.join(',')).join(' L');
+      path(this.gAoi, `M0,0H${SIZE}V${SIZE}H0Z M${ring} Z`, { fill: 'rgba(0,0,0,.5)', 'fill-rule': 'evenodd' });
+      path(this.gAoi, `M${ring} Z`, { fill: 'none', stroke: '#FFD43B', 'stroke-width': 2, 'stroke-dasharray': '6 4', 'vector-effect': 'non-scaling-stroke' });
+    }
     if (vis) {
       let d = '';
       for (let x = vis[0]; x <= vis[2]; x++) d += `M${x},${vis[1]}V${vis[3]}`;
@@ -621,11 +653,12 @@ class Viewer {
     const inside = p && p.viewer === this.index && xImage >= 0 && yImage >= 0 && xImage < SIZE && yImage < SIZE && p.mx >= 0 && p.my >= 0 && p.mx < r.width && p.my < r.height;
     this.hoverTip.hidden = !inside || !w || switching;
     if (this.hoverTip.hidden) return;
-    const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || (w.lab[i] === LEGACY.v ? LEGACY : CLS[CLS.length - 1]);
+    const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || CLS[CLS.length - 1];
     const label = w.shadow[i] ? '云 / 云影' : w.whole[i] ? '看不清 · 整期不可判' : w.lab[i] === NONE && w.ai?.occlusion?.[i] === 1 ? '云 / 云影' : cls.name;
     const marks = [w.uns[i] ? '拿不准' : '', w.todo[i] && !w.tch[i] && w.lab[i] !== NONE ? '待看' : ''].filter(Boolean);
-    this.hoverTitle.textContent = `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
-    this.hoverTip.style.borderLeftColor = w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
+    const outside = !scopeOf(w.code).m[i];
+    this.hoverTitle.textContent = outside ? '黄线外：不用标' : `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
+    this.hoverTip.style.borderLeftColor = outside ? '#FFD43B' : w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
     this.hoverNote.textContent = `${fmtDate(w.p.date)}${!this.labels && blink && P[w.code][w.k - 1] ? ' · 当前期标签，上一期影像' : !this.labels && this.scene.aiLeft ? ' · 左图为AI预标' : ''}`;
     const width = this.hoverTip.offsetWidth, height = this.hoverTip.offsetHeight;
     const x = clamp(p.mx + 14, 6, Math.max(6, r.width - width - 6));
@@ -665,10 +698,11 @@ const ops = {
     if (!W) return;
     W.undo.push({ lab: W.lab.slice(), uns: W.uns.slice(), tch: W.tch.slice(), todo: W.todo.slice(), shadow: W.shadow.slice(), whole: W.whole.slice(), legacyWhole: W.legacyWhole, quality: W.quality, qEditing: W.qEditing, qPending: W.qPending, src: W.src });
     if (W.undo.length > 30) W.undo.shift();
-    this.n = 0; this.spDone = new Set();
+    this.n = 0; this.outside = 0; this.spDone = new Set();
   },
   set(i) {
     const w = W;
+    if (!w.scope[i]) { this.outside++; return; }   // 黄线外不用标，涂不上
     if (saving || !qualityReady(w) || (w.quality.status === 'no' && ![NONE, SHADOW].includes(scene.brush))) return;
     if (scene.brush === UNSURE) w.uns[i] = 1;
     else { w.lab[i] = scene.brush === SHADOW ? NONE : scene.brush; w.shadow[i] = scene.brush === SHADOW ? 1 : 0; w.whole[i] = 0; w.uns[i] = 0; w.todo[i] = 0; }
@@ -699,6 +733,7 @@ const ops = {
   flood(x, y) {
     if (!W) return;
     const i0 = Math.floor(y) * SIZE + Math.floor(x), v0 = W.lab[i0], s0 = W.shadow[i0];
+    if (!W.scope[i0]) { this.outside++; return; }
     const seen = new Uint8Array(N), st = [i0];
     seen[i0] = 1;
     const hit = [];
@@ -706,7 +741,7 @@ const ops = {
       const i = st.pop(); hit.push(i);
       const cx = i % SIZE;
       for (const j of [i - SIZE, i + SIZE, cx > 0 ? i - 1 : -1, cx < SIZE - 1 ? i + 1 : -1]) {
-        if (j < 0 || j >= N || seen[j] || W.lab[j] !== v0 || W.shadow[j] !== s0) continue;
+        if (j < 0 || j >= N || seen[j] || !W.scope[j] || W.lab[j] !== v0 || W.shadow[j] !== s0) continue;
         seen[j] = 1; st.push(j);
       }
     }
@@ -731,7 +766,7 @@ const ops = {
   },
   end() {
     if (!W) return;
-    if (!this.n) { W.undo.pop(); scene.changed(); return; }
+    if (!this.n) { W.undo.pop(); scene.changed(); if (this.outside) toast('黄线外（河对岸）不用标，涂不上。'); return; }
     W.dirty = true;
     scene.changed();
     afterEdit();
@@ -759,7 +794,7 @@ async function saveDraft(w) {
   if (!w || !w.dirty) return;
   const key = `${w.code}|${w.p.scene_id}`;
   const dk = draftKey(key, w.mode);
-  await kvSet(dk, { map: packMap(w), quality: w.quality, whole_mask_v: 1, legacyWhole: w.legacyWhole, qEditing: w.qEditing, qPending: w.qPending, src: w.src, baseId: w.baseId || null, at: new Date().toISOString() });
+  await kvSet(dk, { map: packMap(w), schema: SCHEMA, quality: w.quality, whole_mask_v: 1, legacyWhole: w.legacyWhole, qEditing: w.qEditing, qPending: w.qPending, src: w.src, baseId: w.baseId || null, at: new Date().toISOString() });
   if (!w.dirty) { await kvDel(dk); return; }   // 存草稿的时候正好保存了
   if (mode === w.mode && !drafts.has(key)) { drafts.add(key); renderListSoon(); }
 }
@@ -779,14 +814,14 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   const qualityRead = loadChangeQuality(code);
   const key = `${code}|${p.scene_id}`;
   const ai = await aiOf(code, p.date);
-  let w = null, src = 'ai', baseId = null, savedRow = null;
+  let w = null, src = 'ai', baseId = null, savedRow = null, fourClass = false;   // fourClass：按四类（没有耕地）存的草稿或标注
   const dr = await kvGet(draftKey(key, openMode)) || (openMode === 'demo' ? await kvGet(`draft|${key}`) : null);
-  if (dr?.map) { w = unpackMap(dr.map); w.quality = normaliseQuality(dr.quality); w.legacyWhole = dr.legacyWhole; migrateWholeMask(w, dr.whole_mask_v); w.qEditing = dr.qEditing; w.qPending = dr.qPending; src = dr.src || 'draft'; baseId = dr.baseId; drafts.add(key); }
+  if (dr?.map) { w = unpackMap(dr.map); w.quality = normaliseQuality(dr.quality); w.legacyWhole = dr.legacyWhole; migrateWholeMask(w, dr.whole_mask_v); w.qEditing = dr.qEditing; w.qPending = dr.qPending; src = dr.src || 'draft'; baseId = dr.baseId; drafts.add(key); fourClass = dr.schema !== SCHEMA; }
   else {
     drafts.delete(key);
     savedRow = LAT[key]?.label || null;
     if (savedRow) {
-      try { const d = await labelData(savedRow); if (d) { w = await decodeMap(d); src = 'saved'; baseId = savedRow.id; } } catch (e) { toast(`读不到这一期已保存的标注：${e.message}`); }
+      try { const d = await labelData(savedRow); if (d) { w = await decodeMap(d); src = 'saved'; baseId = savedRow.id; fourClass = d.meta?.schema !== SCHEMA; } } catch (e) { toast(`读不到这一期已保存的标注：${e.message}`); }
     }
   }
   if (!w) {
@@ -796,11 +831,15 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   }
   if (seq !== openSeq || openMode !== mode) return;
   const sameSite = W && W.code === code;
-  W = { ...w, mode: openMode, qEditing: w.qEditing ?? !w.quality, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null };
-  let nLegacy = 0;
-  for (let i = 0; i < N; i++) if (W.lab[i] === LEGACY.v) { W.todo[i] = 1; W.tch[i] = 0; nLegacy++; }
-  if (nLegacy) setTimeout(() => toast(`这一期有 ${fmtN(nLegacy)} 格旧“耕地”标注（黄）：按这一期影像改成水面、植被或裸露土石后才能保存。`), 300);
+  W = { ...w, mode: openMode, qEditing: w.qEditing ?? !w.quality, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null, scope: scopeOf(code).m };
+  // 10-14 白天按四类存的（没有耕地）：AI 判耕地、存的是水体 / 植被 / 裸露地表的格标黄，看过再存
+  let nFarm = 0;
+  if (fourClass && ai) {
+    for (let i = 0; i < N; i++) if (W.scope[i] && ai.cls[i] === CROP && [0, 1, 3].includes(W.lab[i])) { W.todo[i] = 1; W.tch[i] = 0; nFarm++; }
+  }
+  if (nFarm) setTimeout(() => toast(`这一期是按四类（没有耕地）存的：AI 认为是耕地的 ${fmtN(nFarm)} 格已标黄，是田就改成耕地，再保存。`), 300);
   scene.rail = sites[code].railway?.lines || [];
+  scene.aoi = sites[code].aoi?.ring || null;
   scene.jumpAt = -1; scene.flash = null;
   setImages();
   scene.changed();
@@ -826,9 +865,11 @@ function setImages() {
 
 // ---------------------------------------------------------------- 统计和右栏
 function countsOf(w) {
-  const n = [0, 0, 0, 0, 0, 0];
-  let uns = 0, tch = 0, todo = 0, edited = 0, shadow = 0, sn = 0;   // sn：既是看不清又标了云 / 云影的格（显示时不算进“看不清”）
+  const n = [0, 0, 0, 0, 0, 0], sc = scopeOf(w.code).m;
+  let uns = 0, tch = 0, todo = 0, edited = 0, shadow = 0, sn = 0, total = 0;   // sn：既是看不清又标了云 / 云影的格（显示时不算进“看不清”）；只数要标的范围
   for (let i = 0; i < N; i++) {
+    if (!sc[i]) continue;
+    total++;
     const v = w.lab[i];
     n[v === NONE ? 5 : v]++;
     if (w.uns[i]) uns++;
@@ -837,18 +878,19 @@ function countsOf(w) {
     if (w.todo[i] && !w.tch[i] && v !== NONE) todo++;
     if (w.ai && w.ai.cls[i] !== v) edited++;
   }
-  return { n, uns, tch, todo, edited, shadow, sn };
+  return { n, uns, tch, todo, edited, shadow, sn, total };
 }
 function renderCounts() {
   if (!W) return;
-  const c = countsOf(W), valid = N - c.n[5];
-  $('pBars').innerHTML = [...CLS, ...(c.n[LEGACY.v] ? [LEGACY] : [])].map(k => {
-    const m = k.v === NONE ? c.n[5] - c.sn : clsNum(c, k.v), frac = k.v !== NONE ? (valid ? m / valid : 0) : m / N;
+  const c = countsOf(W), valid = c.total - c.n[5];
+  $('pBars').innerHTML = CLS.map(k => {
+    const m = k.v === NONE ? c.n[5] - c.sn : clsNum(c, k.v), frac = k.v !== NONE ? (valid ? m / valid : 0) : m / c.total;
     return `<div class="row"><span><i class="sw" style="background:rgb(${k.rgb})"></i> ${k.name}</span><span class="bar"><i style="width:${(frac * 100).toFixed(1)}%;background:rgb(${k.rgb})"></i></span>`
       + `<span class="num">${(frac * 100).toFixed(1)}%</span></div>`;
   }).join('');
   $('pCount').innerHTML = `<span class="todo"><b>待看 ${fmtN(c.todo)}</b> 格</span><span class="uns">拿不准 ${fmtN(c.uns)}</span>`
-    + `<span>云 / 云影 ${fmtN(c.shadow)} 格（${pct(c.shadow, N)}）</span>`
+    + `<span>云 / 云影 ${fmtN(c.shadow)} 格（${pct(c.shadow, c.total)}）</span>`
+    + (scopeOf(W.code).aoi ? `<span class="tiny">只算黄线以内 ${fmtN(c.total)} 格</span>` : '')
     + `<span class="tiny">比 AI 预标改了 ${fmtN(c.edited)} 格 · 你动过 ${fmtN(c.tch)} 格</span>`;
   renderPalette(c);
   renderOcclusionSuggestion();
@@ -856,7 +898,9 @@ function renderCounts() {
 function occlusionStats(w = W) {
   if (!w?.ai?.occlusion) return null;
   let masked = 0, hardConflicts = 0, softReview = 0, kept = 0;
+  const sc = scopeOf(w.code).m;
   for (let i = 0; i < N; i++) {
+    if (!sc[i]) continue;
     const id = w.ai.occlusion[i], hard = hardOcclusion(id);
     if (!hard && id !== 2) continue;
     if (hard) masked++;
@@ -878,7 +922,7 @@ function applyOcclusionSuggestion() {
   const s = occlusionStats();
   if (!s?.conflicts) return false;
   ops.begin();
-  for (let i = 0; i < N; i++) if (!W.tch[i]) {
+  for (let i = 0; i < N; i++) if (W.scope[i] && !W.tch[i]) {
     if (hardOcclusion(W.ai.occlusion[i])) { W.lab[i] = NONE; W.shadow[i] = W.ai.shadow[i]; W.uns[i] = 0; W.todo[i] = 0; W.whole[i] = 0; }
     else if (W.ai.occlusion[i] === 2 && W.lab[i] <= 4) W.todo[i] = 1;
   }
@@ -887,10 +931,10 @@ function applyOcclusionSuggestion() {
   return true;
 }
 function renderPalette(c) {
-  const valid = c ? N - c.n[5] : 0;
-  const items = [...CLS.map(k => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (k.v !== NONE ? pct(c.n[k.v], valid) : pct(c.n[5] - c.sn, N)) : '' })),
+  const valid = c ? c.total - c.n[5] : 0;
+  const items = [...CLS.map(k => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (k.v !== NONE ? pct(c.n[k.v], valid) : pct(c.n[5] - c.sn, c.total)) : '' })),
     { v: UNSURE, name: '拿不准', key: '7', cls: 'lc-unsure', pct: c ? fmtN(c.uns) : '' },
-    { v: SHADOW, name: '云 / 云影', key: '8', cls: 'lc-shadow', pct: c ? pct(c.shadow, N) : '' }];
+    { v: SHADOW, name: '云 / 云影', key: '8', cls: 'lc-shadow', pct: c ? pct(c.shadow, c.total) : '' }];
   $('palette').innerHTML = items.map(t => `<button data-v="${t.v}" class="${scene.brush === t.v ? 'on' : ''}" title="快捷键 ${t.key}"><i class="sw ${t.cls || ''}" style="${t.sw || ''}"></i>${t.name}<kbd>${t.key}</kbd><span class="pct">${t.pct}</span></button>`).join('');
   $('palette').querySelectorAll('button').forEach(b => { b.onclick = () => setBrush(Number(b.dataset.v)); });
 }
@@ -912,6 +956,7 @@ function renderPanel() {
   const anchor = (AIX?.[code]?.anchors || []).includes(p.date);
   $('pTitle').textContent = `${SITE_NAME[code]} · ${fmtDate(p.date)}（第 ${k} 期）`;
   const tags = [`${p.satellite || ''} ${p.orbit || ''}`.trim()];
+  if (scopeOf(code).aoi) tags.push('只标黄线以内');
   if (anchor) tags.push('★ 锚定期');
   if (p.hazy) tags.push('有雾');
   if ((p.glint ?? 99) < 18) tags.push('水面反光');
@@ -928,7 +973,7 @@ function renderPanel() {
     + (info.flick ? `<br>单期跳变清理 ${fmtN(info.flick)} 格（前后两期一致、只有这一期不同，改成前后的类别，标成拿不准）。` : '')
     + (info.sp ? `<br>超像素统一 ${fmtN(info.sp)} 格（这一期共 ${fmtN(info.nsp)} 块）。` : '')
     + `<br><span class="tiny">${esc(AIX?.note || '')}。当前预标主要依据本期光谱、多年用途及道路铁路位置；9月Swin模型只作兜底。</span>`
-    + '<br><b>AI 预标只是参考：</b>水面、植被大多是对的；裸露土石、人工表面错得多，尤其铁路线上的格、灰白色采挖面和村里的树；薄云下的格标了黄，也要看。先查红色、再查棕色、再看水边和云，最后扫一遍绿色。';
+    + '<br><b>AI 预标只是参考：</b>水体、植被大多是对的；裸露地表、建成区错得多，尤其铁路线上的格、灰白色采挖面和村里的树；耕地（土黄色）是按多年季节规律画的草稿，人工林、河滩草地可能被误画、零碎的田可能漏掉；薄云下的格标了黄，也要看。先查红色、再查耕地边界、再查棕色、再看水边和云，最后扫一遍绿色。';
   $('modeNote').innerHTML = mode === 'demo' ? '演示模式：保存、复核都只存在这台电脑，不写数据库。右上角可以换回正式模式。'
     : '正式模式：保存会把这一期写进数据库（landcover 表，记标注人），旧版本保留，同一期取最新一条。只想试试操作的，可以点右上角换成演示模式。';
   $('whoInput').value = who;
@@ -951,7 +996,8 @@ function qualityFormValue() {
 function machineQualitySuggestion(w = W) {
   if (!w) return null;
   const rec = QAI?.[w.code]?.[w.p.date];
-  if (QAI?.scope === 'full_frame' && rec?.scene_id === w.p.scene_id && Object.hasOwn(QUALITY, rec.status)) {
+  // 10-14 晚起 quality.json 的 scope 是 site_scope：株洲南、韶关南的云、云影、缺测比例按黄线以内算，衡阳北按整幅（source 仍记 full_frame = 机器质检）
+  if (['full_frame', 'site_scope'].includes(QAI?.scope) && rec?.scene_id === w.p.scene_id && Object.hasOwn(QUALITY, rec.status)) {
     const q = normaliseQuality(rec);
     return { ...q, version: String(QAI.version || '').slice(0, 120), source: 'full_frame', basis: (Array.isArray(rec.basis) ? rec.basis : []).map(s => String(s).slice(0, 300)).slice(0, 8), metrics: rec.metrics || {}, skip: rec.status === 'no' && rec.skip !== false };
   }
@@ -962,6 +1008,7 @@ function machineQualitySuggestion(w = W) {
   if (hazy) basis.push('本期有雾标记，需看图确认地物是否仍能辨认');
   return { status, reasons: hazy ? ['haze'] : [], note: basis.join('；'), version: String(AIX?.version || '').slice(0, 120), source: 'prefill_fallback', basis, metrics: {}, skip: status === 'no' };
 }
+const mqName = code => (scopeOf(code).aoi ? '机器质检（黄线以内）' : '整幅机器质检');
 function changeQualityFor(w = W) {
   if (!w) return null;
   const row = changeQualities.get(w.code)?.latest[w.p.scene_id]?.quality, q = row?.data;
@@ -974,7 +1021,7 @@ function changeQualityFor(w = W) {
   const scopeText = scope === 'aoi' ? '观察范围（黄色线以内）' : '整幅';
   const when = row.created_at ? new Date(row.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '保存时间未记录';
   const basis = [`原变化判读第一步人工记录：${QUALITY[q.clear]}；${scopeText}，${when}保存${row._pending ? '，本机待上传' : ''}`];
-  if (scope === 'aoi') basis.push('原判读只看观察范围；地物标注看整幅，范围以外的云、云影也需核对。');
+  if (scope === 'aoi') basis.push('原判读和地物标注都只看观察范围（黄线以内）。');
   if (q.boxes?.length) basis.push(`原记录圈了${q.boxes.length}处看不清；请在本台核对并涂出遮挡格。`);
   if (q.also_blurry) basis.push('原记录注明其余地方也有点模糊。');
   const note = [q.other, originalReasons.filter(r => !keys[r] && !Object.hasOwn(REASONS, r)).join('、')].filter(Boolean).join('；') || '沿用原第一步同档建议，请看整幅后由地物台再次确认。';
@@ -984,8 +1031,8 @@ function qualitySuggestionFor(w = W) {
   const prior = changeQualityFor(w), machine = machineQualitySuggestion(w);
   if (!prior) return machine;
   const basis = [...prior.basis];
-  if (machine?.status === 'no' && prior.status !== 'no') basis.push(`需复核差异：原第一步为“${QUALITY[prior.status]}”，整幅机器质检建议“基本看不清”。请检查整幅后修改或确认质量。`);
-  else if (prior.status === 'no' && machine && machine.status !== 'no') basis.push(`原第一步判基本看不清；整幅机器质检为“${QUALITY[machine.status]}”。请看图复核，仍由你确认是否跳过。`);
+  if (machine?.status === 'no' && prior.status !== 'no') basis.push(`需复核差异：原第一步为“${QUALITY[prior.status]}”，${mqName(w.code)}建议“基本看不清”。请检查整幅后修改或确认质量。`);
+  else if (prior.status === 'no' && machine && machine.status !== 'no') basis.push(`原第一步判基本看不清；${mqName(w.code)}为“${QUALITY[machine.status]}”。请看图复核，仍由你确认是否跳过。`);
   return { ...prior, basis, metrics: machine?.metrics || {}, conflict: machine?.status === 'no' && prior.status !== 'no' };
 }
 function renderQualitySuggestion() {
@@ -1001,9 +1048,9 @@ function renderQualitySuggestion() {
   $('qualityAiBasis').innerHTML = (s?.basis || []).map(b => `<li>${esc(b)}</li>`).join('');
   const metrics = s?.metrics || {}, parts = [];
   for (const [key, name] of [['cloud', '云'], ['thin', '薄云 / 疑似遮挡'], ['shadow', '云影'], ['missing', '缺测']]) if (Number.isFinite(metrics[key])) parts.push(`${name} ${Math.round(metrics[key] * 1000) / 10}%`);
-  $('qualityAiMetrics').textContent = `${machine?.source === 'full_frame' ? '整幅机器质检' : machine ? '预标统计建议' : ''}${parts.length ? ' · ' + parts.join(' / ') : ''}`;
+  $('qualityAiMetrics').textContent = `${machine?.source === 'full_frame' ? mqName(W.code) : machine ? '预标统计建议' : ''}${parts.length ? ' · ' + parts.join(' / ') : ''}`;
   $('qualityMachineDetail').hidden = !prior || !machine;
-  $('qualityMachineDetail').textContent = prior && machine ? `整幅机器质检：${QUALITY[machine.status]}。${machine.note || ''}\n${machine.basis.join('；')}` : '';
+  $('qualityMachineDetail').textContent = prior && machine ? `${mqName(W.code)}：${QUALITY[machine.status]}。${machine.note || ''}\n${machine.basis.join('；')}` : '';
   $('qualityRefreshBtn').disabled = saving || switching || !!state?.loading;
   $('qualityAdoptBtn').disabled = !s || saving || switching;
   $('qualitySkipBtn').hidden = !s?.skip;
@@ -1075,14 +1122,13 @@ function confirmQuality() {
 }
 function validateWork(w = W) {
   if (!requireQuality()) return false;
-  const nLegacy = countsOf(w).n[LEGACY.v];
-  if (nLegacy) { err(`还有 ${fmtN(nLegacy)} 格旧“耕地”没改：四类规则里耕地不再是一类，按这一期影像改成水面、植被或裸露土石再保存（按 J 逐片找）。`); return false; }
   if (w.quality.status === 'partial' && countsOf(w).n[5] === 0) { err('局部看不清：请先用“云 / 云影 8”或“看不清 5”涂出遮挡范围。'); return false; }
   return true;
 }
 async function payloadOf(w) {
   const c = countsOf(w), quality = w.quality, from = w.src, by = who || null, enc = await encodeMap(w);
-  const meta = { schema: SCHEMA, n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, cloud_shadow: c.shadow, whole_mask_v: 1, legacy_whole: !!w.legacyWhole, quality, ai: AIX?.version || null, from, by, date: w.p.date };
+  const meta = { schema: SCHEMA, n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, cloud_shadow: c.shadow, whole_mask_v: 1, legacy_whole: !!w.legacyWhole, quality, ai: AIX?.version || null, from, by, date: w.p.date,
+    scope: scopeOf(w.code).aoi ? 'aoi_v2' : 'full_frame', scope_px: c.total };   // 计数只含范围内；范围外存成 7
   return { v: 'lc1', enc: enc.enc, map: enc.map, meta };
 }
 function download(blob, name) {
@@ -1225,20 +1271,24 @@ async function inheritPrev() {
   for (let q = k - 1; q >= 0; q--) if (LAT[`${code}|${P[code][q].scene_id}`]?.label) { j = q; break; }
   if (j < 0) { toast('前面还没有保存过的期，不能沿用（先把前面的期标好、保存）'); return; }
   const pp = P[code][j];
-  let prev;
-  try { prev = await decodeMap(await labelData(LAT[`${code}|${pp.scene_id}`].label)); } catch (e) { err(`读不到 ${pp.date} 的标注：${e.message}`); return; }
+  let prev, prevFour = false;
+  try { const pd = await labelData(LAT[`${code}|${pp.scene_id}`].label); prev = await decodeMap(pd); prevFour = pd?.meta?.schema !== SCHEMA; } catch (e) { err(`读不到 ${pp.date} 的标注：${e.message}`); return; }
   if (W !== w || saving || !qualityReady(w)) return;
   const ai = W.ai;
+  // 耕地是用途：上一期人已经定了“是田 / 不是田”的格，AI 这期只是耕地草稿和人不同（另一边是水体、植被、裸露地表），不再每期标黄；
+  // 上一期是按四类（没有耕地）存的除外，那时还没有耕地可选
+  const useOnly = (a, b) => (a === CROP && [0, 1, 3].includes(b)) || (b === CROP && [0, 1, 3].includes(a));
   ops.begin();
   let nSame = 0, nFlag = 0, nAi = 0;
   for (let i = 0; i < N; i++) {
+    if (!W.scope[i]) continue;
     if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue; // 当前期人标遮挡不能被上一期/预标填补
     const a1 = ai ? ai.cls[i] : NONE, h0 = prev.lab[i];
     W.tch[i] = 0; W.uns[i] = 0; W.shadow[i] = ai ? ai.shadow[i] : 0;
     if (ai && a1 === NONE) { W.lab[i] = NONE; W.todo[i] = 0; continue; }      // 这一期看不清（云、缺测）
-    if (h0 === NONE || h0 === LEGACY.v) { W.lab[i] = ai ? a1 : NONE; W.todo[i] = 1; nAi++; continue; }   // 上一期没有可用的人工类别
+    if (h0 === NONE) { W.lab[i] = ai ? a1 : NONE; W.todo[i] = 1; nAi++; continue; }   // 上一期没有可用的人工类别
     W.lab[i] = h0; W.uns[i] = prev.uns[i];
-    if (ai && a1 !== h0) { W.todo[i] = 1; nFlag++; } else { W.todo[i] = 0; nSame++; }
+    if (ai && a1 !== h0 && (prevFour || !useOnly(a1, h0))) { W.todo[i] = 1; nFlag++; } else { W.todo[i] = 0; nSame++; }
   }
   ops.n = 1;
   W.src = `prev:${pp.date}`;
@@ -1250,7 +1300,7 @@ function resetAi() {
   if (!W?.ai) { toast('这一期没有 AI 预标'); return; }
   ops.begin();
   for (let i = 0; i < N; i++) {
-    if (W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue;
+    if (!W.scope[i] || W.shadow[i] || (W.lab[i] === NONE && W.tch[i])) continue;
     W.lab[i] = W.ai.cls[i]; W.shadow[i] = W.ai.shadow[i]; W.uns[i] = 0; W.tch[i] = 0; W.todo[i] = W.ai.unc[i];
   }
   ops.n = 1; W.src = 'ai';
@@ -1276,7 +1326,7 @@ function nextTodo() {
   if (!W) return;
   const w = W, m = new Uint8Array(N);
   let any = 0;
-  for (let i = 0; i < N; i++) if (w.todo[i] && !w.tch[i] && w.lab[i] !== NONE) { m[i] = 1; any++; }
+  for (let i = 0; i < N; i++) if (w.scope[i] && w.todo[i] && !w.tch[i] && w.lab[i] !== NONE) { m[i] = 1; any++; }
   if (!any) { toast('这一期没有待看的格子了，可以保存'); return; }
   const seen = new Uint8Array(N), comps = [];
   for (let i = 0; i < N; i++) {
@@ -1508,7 +1558,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
   window.__lc = { get W() { return W; }, get LAT() { return LAT; }, get mode() { return mode; }, get tableReady() { return tableReady; }, get demoRows() { return demoRows; }, get QAI() { return QAI; }, get AIX() { return AIX; },
     scene, ops, va, vb, openPeriod, savePeriod, inheritPrev, resetAi, nextTodo, undo, setBrush, setTool, countsOf, packMap, unpackMap, encodeMap, decodeMap, aiOf, P, drafts, kvKeys, kvDel,
-    trainingMask, maskPng, normaliseQuality, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft, qualitySuggestionFor, renderQualitySuggestion, adoptQualitySuggestion, skipSuggestedQuality, occlusionStats, renderOcclusionSuggestion, applyOcclusionSuggestion, machineQualitySuggestion, changeQualityFor, loadChangeQuality };
+    trainingMask, maskPng, normaliseQuality, scopeOf, qualityReady, confirmQuality, editQuality, payloadOf, importLabel, exportLabel, setMode, review, draftKey, loadDraftKeys, flushDraft, qualitySuggestionFor, renderQualitySuggestion, adoptQualitySuggestion, skipSuggestedQuality, occlusionStats, renderOcclusionSuggestion, applyOcclusionSuggestion, machineQualitySuggestion, changeQualityFor, loadChangeQuality };
 }
 
 // ---------------------------------------------------------------- 启动
