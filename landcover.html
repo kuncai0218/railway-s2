@@ -68,7 +68,7 @@
     <div class="rv-pair"><div class="vbox" id="vA"></div><div class="vbox" id="vB"></div></div>
     <div class="rv-legend">
       <span>左：只看影像（按住 B 换成上一期）</span><span>右：影像 + 标注</span>
-      <span><i class="lg hatch-y"></i>待看（AI 拿不准；耕地两种判法不一致；沿用时 AI 按这一期判得不一样）</span>
+      <span><i class="lg hatch-y"></i>待看（AI 拿不准；耕地证据弱（六年里只有两年像田）；沿用时 AI 按这一期判得不一样）</span>
       <span><i class="lg hatch-w"></i>标了“拿不准”</span><span><i class="lg rail"></i>铁路参考线</span>
       <span><i class="lg hatch-shadow"></i>云 / 云影（被云挡住，训练时忽略）</span>
       <span class="rv-hint">悬浮看类别 · 滚轮放大 · 右键拖 / 按住空格拖动</span>
@@ -265,7 +265,7 @@
       <li><b>棕色</b>：坡上还看得出草或树（绿色）的改成植被；是田的改成耕地；真露出土石的（开挖面、采石场、土路、河滩）才留棕。拿不准的记 7。</li>
       <li><b>蓝色</b>：水边按这一期的水边；山影、云影、深色树林不是水。</li>
       <li><b>云 / 云影（紫色斜线）</b>：AI 只把挡住地面的厚云和云影标成这一项。下面其实看得清的，改成地物类别；AI 漏掉的云和云影，用 8 补上。</li>
-      <li><b>黄斜线 = 待看</b>（AI 拿不准、耕地两种判法不一致、薄云下的格、铁路线上的格）：按 <b>J</b> 一片一片跳过去，对的就用同一类点一下（黄斜线消失），错的改掉。</li>
+      <li><b>黄斜线 = 待看</b>（AI 拿不准、耕地证据弱（六年里只有两年像田）、薄云下的格、铁路线上的格）：按 <b>J</b> 一片一片跳过去，对的就用同一类点一下（黄斜线消失），错的改掉。</li>
       <li>对照着看：<b>A</b> 左图叠 AI 原预标；<b>V</b> 只看原图；<b>T</b> 换假彩色（植被显红，更好认）；按住 <b>B</b> 看上一期；<b>H</b> 显示 / 隐藏标注；<b>O</b> 涂色浓 → 淡 → 只描边。</li>
     </ul>
     <h4>每一期的步骤</h4>
@@ -296,6 +296,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script type="module" src="assets/js/landcover.js?v=20261014f"></script>
+<script type="module" src="assets/js/landcover.js?v=20261014g"></script>
 </body>
 </html>

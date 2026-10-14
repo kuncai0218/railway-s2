@@ -587,7 +587,7 @@ class Viewer {
   // 铁路、格线、闪一下的待看片
   _renderSvg() {
     const sc = this.scene, s = sc.view.scale;
-    const gridOn = sc.grid && !sc.bare && s >= GRID_MIN_SCALE;
+    const gridOn = sc.grid && !sc.bare && s >= GRID_MIN_SCALE && this.labels;   // 10-14 晚：格线只画在右边标注图上，左图只看影像、不盖网格
     const r = this.box.getBoundingClientRect();
     const vis = gridOn ? [Math.max(0, Math.floor(-sc.view.tx / s)), Math.max(0, Math.floor(-sc.view.ty / s)), Math.min(SIZE, Math.ceil((r.width - sc.view.tx) / s)), Math.min(SIZE, Math.ceil((r.height - sc.view.ty) / s))] : null;
     const key = `${sc.showRail && !sc.bare}|${sc.rail.length}|${vis}|${sc.flash?.d.length || 0}|${sc.bare}|${W?.code}|${sc.aoi?.length || 0}`;
