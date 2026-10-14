@@ -5,7 +5,7 @@
 // 一期的标注从哪来（先找到的为准）：这台电脑上没保存的草稿（IndexedDB）→ 数据库 landcover 表里这一期最新的标注 → AI 预标（prefill_lc/）。
 // 保存：正式模式写 landcover 表（kind = label；组长复核 kind = review）；演示模式只存在这台电脑。数据库里还没有 landcover 表时只能用演示模式。
 // 存的格式：data = { v: 'lc1', enc: 'gz' | 'raw', map: base64, meta }；map 解开是 65536 个字节，一个字节一格（行优先）：
-//   低 3 位 = 类别（0—4，7 = 看不清），bit3 = 拿不准，bit4 = 人动过，bit5 = 待看，bit6 = 云影遮挡，bit7 = 整期质量自动屏蔽（低3位仍为7，旧解码器仍读255）。
+//   低 3 位 = 类别（0—4，7 = 看不清），bit3 = 拿不准，bit4 = 人动过，bit5 = 待看，bit6 = 云 / 云影遮挡（10-14 起云和云影合成一项），bit7 = 整期质量自动屏蔽（低3位仍为7，旧解码器仍读255）。
 //   整期质量写 meta.quality；旧记录没有此字段时保持未评定。草稿按 demo/live 分开。
 import { append, uuid, clientId } from './api.js';
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION, SITE_ORDER } from './config.js';
@@ -35,16 +35,18 @@ const RGB = {}; for (const c of [...CLS, LEGACY]) RGB[c.v] = c.rgb;
 const clsNum = (c, v) => (v === NONE ? c.n[5] : c.n[v]);
 const TABLE = 'landcover';
 // 10-14 起默认正式模式；换了存储键名，以前在这台电脑上选过“演示”的也回到正式模式
-const MODE_KEY = 'rs2_lc_mode2', SITE_KEY = 'rs2_lc_site', FILTER_KEY = 'rs2_lc_filter', NAME_KEY = 'rs2_lc_name';
+const GUIDE_KEY = 'rs2_lc_guide_skip';   // 勾了“以后不自动弹出”才不弹
+const MODE_KEY = 'rs2_lc_mode2', SITE_KEY = 'rs2_lc_site', FILTER_KEY = 'rs2_lc_filter2', NAME_KEY = 'rs2_lc_name';
 const FILL_ALPHA = [118, 58, 0];   // 涂色：浓 / 淡 / 只描边
 const FILL_NAME = ['涂色：浓', '涂色：淡', '只描边'];
 const GRID_MIN_SCALE = 6;
 
-let mode = 'live', site = 'ZZ', filter = 'pilot', who = '';
+let mode = 'live', site = 'ZZ', filter = 'all', who = '';
 try {
   mode = localStorage.getItem(MODE_KEY) === 'demo' ? 'demo' : 'live';
   site = localStorage.getItem(SITE_KEY) || 'ZZ';
-  filter = localStorage.getItem(FILTER_KEY) || 'pilot';
+  filter = localStorage.getItem(FILTER_KEY) || 'all';
+  if (filter === 'pilot') filter = 'all';   // 10-14 去掉试标期
   who = localStorage.getItem(NAME_KEY) || '';
 } catch { /* storage blocked */ }
 if (!SITE_ORDER.includes(site)) site = 'ZZ';
@@ -324,7 +326,7 @@ function aiOf(code, date) {
       conf[i] = Math.min(4, Math.floor(a[i * 4 + 1] / 50)) * 25;
       unc[i] = a[i * 4 + 2] > 127 ? 1 : 0;
       if (occlusion) {
-        shadow[i] = occlusion[i] === 3 ? 1 : 0;
+        shadow[i] = occlusion[i] === 1 || occlusion[i] === 3 ? 1 : 0;   // 10-14 起云和云影都记“云 / 云影”
         if (hardOcclusion(occlusion[i])) { cls[i] = NONE; unc[i] = 0; conf[i] = 0; }
       }
     }
@@ -620,7 +622,7 @@ class Viewer {
     this.hoverTip.hidden = !inside || !w || switching;
     if (this.hoverTip.hidden) return;
     const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || (w.lab[i] === LEGACY.v ? LEGACY : CLS[CLS.length - 1]);
-    const label = w.shadow[i] ? '云影 · 看不清' : w.whole[i] ? '看不清 · 整期不可判' : w.lab[i] === NONE && w.ai?.occlusion?.[i] === 1 ? '云遮挡 · 看不清' : cls.name;
+    const label = w.shadow[i] ? '云 / 云影' : w.whole[i] ? '看不清 · 整期不可判' : w.lab[i] === NONE && w.ai?.occlusion?.[i] === 1 ? '云 / 云影' : cls.name;
     const marks = [w.uns[i] ? '拿不准' : '', w.todo[i] && !w.tch[i] && w.lab[i] !== NONE ? '待看' : ''].filter(Boolean);
     this.hoverTitle.textContent = `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
     this.hoverTip.style.borderLeftColor = w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
@@ -825,28 +827,28 @@ function setImages() {
 // ---------------------------------------------------------------- 统计和右栏
 function countsOf(w) {
   const n = [0, 0, 0, 0, 0, 0];
-  let uns = 0, tch = 0, todo = 0, edited = 0, shadow = 0;
+  let uns = 0, tch = 0, todo = 0, edited = 0, shadow = 0, sn = 0;   // sn：既是看不清又标了云 / 云影的格（显示时不算进“看不清”）
   for (let i = 0; i < N; i++) {
     const v = w.lab[i];
     n[v === NONE ? 5 : v]++;
     if (w.uns[i]) uns++;
-    if (w.shadow[i]) shadow++;
+    if (w.shadow[i]) { shadow++; if (v === NONE) sn++; }
     if (w.tch[i]) tch++;
     if (w.todo[i] && !w.tch[i] && v !== NONE) todo++;
     if (w.ai && w.ai.cls[i] !== v) edited++;
   }
-  return { n, uns, tch, todo, edited, shadow };
+  return { n, uns, tch, todo, edited, shadow, sn };
 }
 function renderCounts() {
   if (!W) return;
   const c = countsOf(W), valid = N - c.n[5];
   $('pBars').innerHTML = [...CLS, ...(c.n[LEGACY.v] ? [LEGACY] : [])].map(k => {
-    const m = clsNum(c, k.v), frac = k.v !== NONE ? (valid ? m / valid : 0) : m / N;
+    const m = k.v === NONE ? c.n[5] - c.sn : clsNum(c, k.v), frac = k.v !== NONE ? (valid ? m / valid : 0) : m / N;
     return `<div class="row"><span><i class="sw" style="background:rgb(${k.rgb})"></i> ${k.name}</span><span class="bar"><i style="width:${(frac * 100).toFixed(1)}%;background:rgb(${k.rgb})"></i></span>`
       + `<span class="num">${(frac * 100).toFixed(1)}%</span></div>`;
   }).join('');
   $('pCount').innerHTML = `<span class="todo"><b>待看 ${fmtN(c.todo)}</b> 格</span><span class="uns">拿不准 ${fmtN(c.uns)}</span>`
-    + `<span>云影遮挡 ${fmtN(c.shadow)} 格（${pct(c.shadow, N)}）</span>`
+    + `<span>云 / 云影 ${fmtN(c.shadow)} 格（${pct(c.shadow, N)}）</span>`
     + `<span class="tiny">比 AI 预标改了 ${fmtN(c.edited)} 格 · 你动过 ${fmtN(c.tch)} 格</span>`;
   renderPalette(c);
   renderOcclusionSuggestion();
@@ -886,9 +888,9 @@ function applyOcclusionSuggestion() {
 }
 function renderPalette(c) {
   const valid = c ? N - c.n[5] : 0;
-  const items = [...CLS.map(k => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (k.v !== NONE ? pct(c.n[k.v], valid) : pct(c.n[5], N)) : '' })),
+  const items = [...CLS.map(k => ({ v: k.v, name: k.name, key: k.key, sw: `background:rgb(${k.rgb})`, pct: c ? (k.v !== NONE ? pct(c.n[k.v], valid) : pct(c.n[5] - c.sn, N)) : '' })),
     { v: UNSURE, name: '拿不准', key: '7', cls: 'lc-unsure', pct: c ? fmtN(c.uns) : '' },
-    { v: SHADOW, name: '云影', key: '8', cls: 'lc-shadow', pct: c ? pct(c.shadow, N) : '' }];
+    { v: SHADOW, name: '云 / 云影', key: '8', cls: 'lc-shadow', pct: c ? pct(c.shadow, N) : '' }];
   $('palette').innerHTML = items.map(t => `<button data-v="${t.v}" class="${scene.brush === t.v ? 'on' : ''}" title="快捷键 ${t.key}"><i class="sw ${t.cls || ''}" style="${t.sw || ''}"></i>${t.name}<kbd>${t.key}</kbd><span class="pct">${t.pct}</span></button>`).join('');
   $('palette').querySelectorAll('button').forEach(b => { b.onclick = () => setBrush(Number(b.dataset.v)); });
 }
@@ -910,11 +912,10 @@ function renderPanel() {
   const anchor = (AIX?.[code]?.anchors || []).includes(p.date);
   $('pTitle').textContent = `${SITE_NAME[code]} · ${fmtDate(p.date)}（第 ${k} 期）`;
   const tags = [`${p.satellite || ''} ${p.orbit || ''}`.trim()];
-  if ((AIX?.[code]?.pilot || []).includes(p.date)) tags.push('★ 试标期');
   if (anchor) tags.push('★ 锚定期');
   if (p.hazy) tags.push('有雾');
   if ((p.glint ?? 99) < 18) tags.push('水面反光');
-  if (info.none != null) tags.push(`看不清 ${Math.round(info.none * 100)}%`);
+  if (info.none != null) tags.push(`云和看不清 ${Math.round(info.none * 100)}%`);
   $('pTags').innerHTML = tags.map(t => `<span class="badge${t.startsWith('★') ? ' warn' : ''}">${esc(t)}</span>`).join('');
   renderSrc();
   renderQuality();
@@ -927,7 +928,7 @@ function renderPanel() {
     + (info.flick ? `<br>单期跳变清理 ${fmtN(info.flick)} 格（前后两期一致、只有这一期不同，改成前后的类别，标成拿不准）。` : '')
     + (info.sp ? `<br>超像素统一 ${fmtN(info.sp)} 格（这一期共 ${fmtN(info.nsp)} 块）。` : '')
     + `<br><span class="tiny">${esc(AIX?.note || '')}。当前预标主要依据本期光谱、多年用途及道路铁路位置；9月Swin模型只作兜底。</span>`
-    + '<br><b>AI 哪里容易错（10-14 抽查）：</b>水面、植被大多是对的；裸露土石错得不少；人工表面大多是错的（多半其实是铁路道床碎石、灰白土石，或村里的树）。先查红色、再查棕色、再看水边，最后扫一遍植被。';
+    + '<br><b>AI 预标只是参考：</b>水面、植被大多是对的；裸露土石、人工表面错得多，尤其铁路线上的格、灰白色采挖面和村里的树；薄云下的格标了黄，也要看。先查红色、再查棕色、再看水边和云，最后扫一遍绿色。';
   $('modeNote').innerHTML = mode === 'demo' ? '演示模式：保存、复核都只存在这台电脑，不写数据库。右上角可以换回正式模式。'
     : '正式模式：保存会把这一期写进数据库（landcover 表，记标注人），旧版本保留，同一期取最新一条。只想试试操作的，可以点右上角换成演示模式。';
   $('whoInput').value = who;
@@ -1076,7 +1077,7 @@ function validateWork(w = W) {
   if (!requireQuality()) return false;
   const nLegacy = countsOf(w).n[LEGACY.v];
   if (nLegacy) { err(`还有 ${fmtN(nLegacy)} 格旧“耕地”没改：四类规则里耕地不再是一类，按这一期影像改成水面、植被或裸露土石再保存（按 J 逐片找）。`); return false; }
-  if (w.quality.status === 'partial' && countsOf(w).n[5] === 0) { err('局部看不清：请先用“云影 8”或“看不清 5”涂出遮挡范围。'); return false; }
+  if (w.quality.status === 'partial' && countsOf(w).n[5] === 0) { err('局部看不清：请先用“云 / 云影 8”或“看不清 5”涂出遮挡范围。'); return false; }
   return true;
 }
 async function payloadOf(w) {
@@ -1121,7 +1122,7 @@ async function exportLabel(maskOnly = false) {
       const lines = []; for (let y = 0; y < SIZE; y++) lines.push(mask.subarray(y * SIZE, (y + 1) * SIZE).join(','));
       download(new Blob([lines.join('\n')], { type: 'text/csv' }), `${name}_mask.csv`);
     }
-    toast('已导出掩膜：地物0—4；云影、看不清、拿不准、未查看的待看格为255。');
+    toast('已导出掩膜：地物0—4；云 / 云影、看不清、拿不准、未查看的待看格为255。');
   }
 }
 async function importLabel(file) {
@@ -1155,10 +1156,9 @@ function renderReview() {
 
 // ---------------------------------------------------------------- 队列
 function periodsShown(code = site) {
-  const anchors = new Set(AIX?.[code]?.anchors || []), pilot = new Set(AIX?.[code]?.pilot || []);
+  const anchors = new Set(AIX?.[code]?.anchors || []);
   return (P[code] || []).map((p, k) => ({ p, k })).filter(({ p }) => {
     const st = stateOf(code, p);
-    if (filter === 'pilot') return pilot.has(p.date);
     if (filter === 'anchor') return anchors.has(p.date);
     if (filter === 'todo') return st === 'todo' || st === 'draft';
     if (filter === 'all') return true;
@@ -1179,7 +1179,7 @@ function renderList() {
   $('progText').textContent = `${SITE_NAME[site]}：已保存 ${saved} / ${all.length} 期，组长通过 ${ok}${mode === 'demo' ? '（演示）' : ''}；列表 ${shown.length} 期`;
   const L = $('qList');
   if (!shown.length) { L.innerHTML = '<div class="tiny" style="padding:8px">这个筛选下没有期了。</div>'; return; }
-  const anchors = new Set(AIX?.[site]?.anchors || []), pilotSet = new Set(AIX?.[site]?.pilot || []);
+  const anchors = new Set(AIX?.[site]?.anchors || []);
   let html = '', lastY = '';
   for (const { p, k } of shown) {
     const y = p.date.slice(0, 4);
@@ -1188,8 +1188,8 @@ function renderList() {
     const lab = LAT[`${site}|${p.scene_id}`]?.label;
     const q = normaliseQuality(lab?.meta?.quality);
     const sub = lab ? `${esc(lab.meta?.by || '没留名')} · ${q ? QUALITY[q.status] : '质量未评'} · 改 ${fmtN(lab.meta?.edited)} 格${lab.meta?.todo ? ` · 留黄 ${fmtN(lab.meta.todo)}` : ''}`
-      : `AI 拿不准 ${info.unc != null ? Math.round(info.unc * 100) : '—'}% · 看不清 ${info.none != null ? Math.round(info.none * 100) : '—'}%`;
-    html += `<button data-k="${k}" class="${W && W.code === site && W.k === k ? 'cur' : ''}"><span class="t">${fmtDate(p.date).slice(5)}${pilotSet.has(p.date) ? '<span class="star">试</span>' : ''}${anchors.has(p.date) ? '<span class="star">★</span>' : ''}${p.hazy ? ' · 雾' : ''}</span>`
+      : `AI 拿不准 ${info.unc != null ? Math.round(info.unc * 100) : '—'}% · 云和看不清 ${info.none != null ? Math.round(info.none * 100) : '—'}%`;
+    html += `<button data-k="${k}" class="${W && W.code === site && W.k === k ? 'cur' : ''}"><span class="t">${fmtDate(p.date).slice(5)}${anchors.has(p.date) ? '<span class="star">★</span>' : ''}${p.hazy ? ' · 雾' : ''}</span>`
       + `<span class="st ${st}" title="${ST_TITLE[st]}">${ST_TEXT[st]}</span><small>${sub}</small></button>`;
   }
   L.innerHTML = html;
@@ -1223,7 +1223,7 @@ async function inheritPrev() {
   const { code, k } = W;
   let j = -1;
   for (let q = k - 1; q >= 0; q--) if (LAT[`${code}|${P[code][q].scene_id}`]?.label) { j = q; break; }
-  if (j < 0) { toast('前面还没有保存过的期，不能沿用（先标试标期或锚定期）'); return; }
+  if (j < 0) { toast('前面还没有保存过的期，不能沿用（先把前面的期标好、保存）'); return; }
   const pp = P[code][j];
   let prev;
   try { prev = await decodeMap(await labelData(LAT[`${code}|${pp.scene_id}`].label)); } catch (e) { err(`读不到 ${pp.date} 的标注：${e.message}`); return; }
@@ -1443,6 +1443,7 @@ $('helpBtn').onclick = () => $('helpModal').classList.add('show');
 $('helpClose').onclick = () => $('helpModal').classList.remove('show');
 $('guideBtn').onclick = () => $('guideModal').classList.add('show');
 $('guideClose').onclick = () => $('guideModal').classList.remove('show');
+$('guideSkip').onchange = e => { try { localStorage.setItem(GUIDE_KEY, e.target.checked ? '1' : '0'); } catch { /* ignore */ } };
 function renderMode() { const b = $('modeBtn'); b.className = `mode-btn ${mode}`; b.textContent = mode === 'live' ? '正式模式' : '演示模式'; }
 $('modeBtn').onclick = () => {
   if (saving || switching) return;
@@ -1514,6 +1515,11 @@ if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
 // ---------------------------------------------------------------- 启动
 async function init() {
   renderMode();
+  // 10-14：进入页面立刻弹出标注说明（勾了“以后不自动弹出”的除外）
+  let skipGuide = false;
+  try { skipGuide = localStorage.getItem(GUIDE_KEY) === '1'; } catch { /* storage blocked */ }
+  $('guideSkip').checked = skipGuide;
+  if (!skipGuide) $('guideModal').classList.add('show');
   renderPalette(null);
   sites = await loadSites();
   for (const c of SITE_ORDER) P[c] = await loadPeriods(c);
