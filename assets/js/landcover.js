@@ -10,6 +10,10 @@
 //   整期质量写 meta.quality；旧记录没有此字段时保持未评定。草稿按 demo/live 分开。
 // 10-14 晚起株洲南、韶关南只标观察范围（sites.json 的 aoi，河右岸、铁路这一侧），衡阳北整幅：范围外压暗、涂不上、不计数，
 //   保存时范围外一律写 7（看不清、不带标记），meta.scope 记 'aoi_v2' / 'full_frame'；用这些标注时要按同一个范围掩膜（scopeOf）取。
+// 10-16 用户：“铁路单独标出，不参与类别标注，单独作为铁路标出”。铁路带 = 像元中心离道床线（sites.json 的 railway.track，
+//   OSM 参考线按影像吸附过；没有 track 时用 railway.lines）≤ 0.75 格、且在要标的范围内的格：页面画成深色“铁路”，涂不上、不算五类、
+//   不进训练掩膜；保存时写类码 5（只有类码，不带标记），meta.rail 记道床线版本、meta.rail_px 记格数。Python 端用同一算法
+//   （landcover_fine_20261006\脚本\rail_track.py 的 dist_mask）取铁路带。
 import { append, uuid, clientId } from './api.js';
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION, SITE_ORDER } from './config.js';
 import { loadSites, loadPeriods, loadReadings, latestByScene, fmtDate, fmtTime } from './store.js';
@@ -34,6 +38,7 @@ const CLS = [
   { v: NONE, name: '看不清', rgb: [150, 156, 168], key: '6' },
 ];
 const CROP = 2;
+const RAIL = 5, RAIL_RGB = [24, 24, 32], RAIL_HALF = 0.75;   // 10-16：铁路单独一类（类码 5），自动标出，不算五类
 const SCHEMA = 'cover5-v1';
 const RGB = {}; for (const c of CLS) RGB[c.v] = c.rgb;
 const clsNum = (c, v) => (v === NONE ? c.n[5] : c.n[v]);
@@ -147,8 +152,8 @@ function b64(bytes) {
 }
 function unb64(s) { const b = atob(s); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
 function packMap(w) {
-  const a = new Uint8Array(N), sc = scopeOf(w.code).m;
-  for (let i = 0; i < N; i++) a[i] = !sc[i] ? 7 : (w.quality?.status === 'no' || w.shadow?.[i] || w.whole?.[i] || w.lab[i] === NONE ? 7 : w.lab[i]) | (w.uns[i] << 3) | (w.tch[i] << 4) | ((w.todo[i] && !w.tch[i] ? 1 : 0) << 5) | ((w.shadow?.[i] ? 1 : 0) << 6) | ((w.whole?.[i] ? 1 : 0) << 7);
+  const so = scopeOf(w.code), a = new Uint8Array(N), sc = so.m, rl = so.rail;
+  for (let i = 0; i < N; i++) a[i] = rl[i] ? RAIL : !sc[i] ? 7 : (w.quality?.status === 'no' || w.shadow?.[i] || w.whole?.[i] || w.lab[i] === NONE ? 7 : w.lab[i]) | (w.uns[i] << 3) | (w.tch[i] << 4) | ((w.todo[i] && !w.tch[i] ? 1 : 0) << 5) | ((w.shadow?.[i] ? 1 : 0) << 6) | ((w.whole?.[i] ? 1 : 0) << 7);
   return a;
 }
 function unpackMap(a) {
@@ -156,10 +161,10 @@ function unpackMap(a) {
   const lab = new Uint8Array(N), uns = new Uint8Array(N), tch = new Uint8Array(N), todo = new Uint8Array(N), shadow = new Uint8Array(N), whole = new Uint8Array(N);
   for (let i = 0; i < N; i++) {
     const v = a[i] & 7;
-    if (v === 5 || v === 6) throw new Error('标注含不支持的地物类别');
+    if (v === 6) throw new Error('标注含不支持的地物类别');
     shadow[i] = (a[i] >> 6) & 1;
     whole[i] = (a[i] >> 7) & 1;
-    lab[i] = v === 7 || shadow[i] || whole[i] ? NONE : v;
+    lab[i] = v === 7 || v === RAIL || shadow[i] || whole[i] ? NONE : v;   // 5 = 铁路（10-16 起，按道床线自动标，打开时由 scopeOf 的铁路带重新画出）
     uns[i] = (a[i] >> 3) & 1; tch[i] = (a[i] >> 4) & 1; todo[i] = (a[i] >> 5) & 1;
   }
   return { lab, uns, tch, todo, shadow, whole, quality: null };
@@ -372,9 +377,30 @@ function scopeOf(code) {
     }
     m[y * SIZE + x] = inside ? 1 : 0;
   }
-  let n = 0;
-  for (let i = 0; i < N; i++) n += m[i];
-  return (scopeCache[code] = { m, n, ring, aoi: !!ring });
+  // 10-16：铁路带（范围内、离道床线 ≤ 0.75 格）单独标“铁路”，从要标的范围里扣掉：涂不上、不计数、不进训练掩膜
+  const rb = railBandOf(code), rail = new Uint8Array(N);
+  let n = 0, nRail = 0;
+  for (let i = 0; i < N; i++) {
+    if (m[i] && rb.m[i]) { rail[i] = 1; m[i] = 0; nRail++; }
+    n += m[i];
+  }
+  return (scopeCache[code] = { m, n, ring, aoi: !!ring, rail, nRail, railVersion: rb.version });
+}
+// 铁路带：像元中心到道床线的距离 ≤ 半宽（和 rail_track.py 的 dist_mask 同一算法；先用吸附过的 railway.track，没有再用 OSM 参考线）
+function railBandOf(code) {
+  const r = sites?.[code]?.railway || {}, tr = r.track, lines = tr?.lines || r.lines || [], half = tr?.half_width ?? RAIL_HALF, h2 = half * half;
+  const m = new Uint8Array(N);
+  for (const line of lines) for (let k = 0; k + 1 < line.length; k++) {
+    const [ax, ay] = line[k], [bx, by] = line[k + 1], dx = bx - ax, dy = by - ay, L2 = Math.max(dx * dx + dy * dy, 1e-9);
+    const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - half - 1)), x1 = Math.min(SIZE - 1, Math.ceil(Math.max(ax, bx) + half + 1));
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by) - half - 1)), y1 = Math.min(SIZE - 1, Math.ceil(Math.max(ay, by) + half + 1));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x + 0.5, py = y + 0.5, t = clamp(((px - ax) * dx + (py - ay) * dy) / L2, 0, 1);
+      const qx = ax + t * dx - px, qy = ay + t * dy - py;
+      if (qx * qx + qy * qy <= h2) m[y * SIZE + x] = 1;
+    }
+  }
+  return { m, version: tr?.version || (lines.length ? 'osm_lines' : null) };
 }
 
 // ---------------------------------------------------------------- 画布
@@ -538,10 +564,13 @@ class Viewer {
     ctx.clearRect(0, 0, SIZE, SIZE);
     if (!show) return;
     const img = ctx.createImageData(SIZE, SIZE), d = img.data;
-    const src = this.labels ? w.lab : w.ai.cls, inScope = scopeOf(w.code).m;
+    const so = scopeOf(w.code), src = this.labels ? w.lab : w.ai.cls, inScope = so.m, rl = so.rail;
     const a0 = this.labels ? FILL_ALPHA[sc.fill] : 120;
+    for (let i = 0; i < N; i++) if (rl[i]) {   // 10-16：铁路带单独画成深色（不随“涂色浓淡”变，只描边时也画）
+      d[i * 4] = RAIL_RGB[0]; d[i * 4 + 1] = RAIL_RGB[1]; d[i * 4 + 2] = RAIL_RGB[2]; d[i * 4 + 3] = 215;
+    }
     if (a0) for (let i = 0; i < N; i++) {
-      if (!inScope[i]) continue;   // 范围外不涂色（SVG 层压暗）
+      if (!inScope[i]) continue;   // 范围外不涂色（SVG 层压暗）；铁路带上面已画
       const c = this.labels && w.shadow[i] ? [113, 91, 151] : RGB[src[i]] || RGB[NONE];
       let a = a0;
       if (this.labels && sc.onlyTodo && !(w.todo[i] && !w.tch[i])) a = Math.round(a0 * 0.22);
@@ -656,9 +685,9 @@ class Viewer {
     const i = Math.floor(yImage) * SIZE + Math.floor(xImage), cls = CLS.find(c => c.v === w.lab[i]) || CLS[CLS.length - 1];
     const label = w.shadow[i] ? '云 / 云影' : w.whole[i] ? '看不清 · 整期不可判' : w.lab[i] === NONE && w.ai?.occlusion?.[i] === 1 ? '云 / 云影' : cls.name;
     const marks = [w.uns[i] ? '拿不准' : '', w.todo[i] && !w.tch[i] && w.lab[i] !== NONE ? '待看' : ''].filter(Boolean);
-    const outside = !scopeOf(w.code).m[i];
-    this.hoverTitle.textContent = outside ? '黄线外：不用标' : `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
-    this.hoverTip.style.borderLeftColor = outside ? '#FFD43B' : w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
+    const so = scopeOf(w.code), onRail = !!so.rail[i], outside = !so.m[i] && !onRail;
+    this.hoverTitle.textContent = onRail ? '铁路：按道床线自动标出，不用标' : outside ? '黄线外：不用标' : `当前标注：${label}${marks.length ? ' · ' + marks.join(' · ') : ''}`;
+    this.hoverTip.style.borderLeftColor = onRail ? `rgb(${RAIL_RGB})` : outside ? '#FFD43B' : w.shadow[i] ? '#c4b5fd' : `rgb(${cls.rgb})`;
     this.hoverNote.textContent = `${fmtDate(w.p.date)}${!this.labels && blink && P[w.code][w.k - 1] ? ' · 当前期标签，上一期影像' : !this.labels && this.scene.aiLeft ? ' · 左图为AI预标' : ''}`;
     const width = this.hoverTip.offsetWidth, height = this.hoverTip.offsetHeight;
     const x = clamp(p.mx + 14, 6, Math.max(6, r.width - width - 6));
@@ -698,11 +727,11 @@ const ops = {
     if (!W) return;
     W.undo.push({ lab: W.lab.slice(), uns: W.uns.slice(), tch: W.tch.slice(), todo: W.todo.slice(), shadow: W.shadow.slice(), whole: W.whole.slice(), legacyWhole: W.legacyWhole, quality: W.quality, qEditing: W.qEditing, qPending: W.qPending, src: W.src });
     if (W.undo.length > 30) W.undo.shift();
-    this.n = 0; this.outside = 0; this.spDone = new Set();
+    this.n = 0; this.outside = 0; this.onRail = 0; this.spDone = new Set();
   },
   set(i) {
     const w = W;
-    if (!w.scope[i]) { this.outside++; return; }   // 黄线外不用标，涂不上
+    if (!w.scope[i]) { if (w.rail?.[i]) this.onRail++; else this.outside++; return; }   // 黄线外、铁路带不用标，涂不上
     if (saving || !qualityReady(w) || (w.quality.status === 'no' && ![NONE, SHADOW].includes(scene.brush))) return;
     if (scene.brush === UNSURE) w.uns[i] = 1;
     else { w.lab[i] = scene.brush === SHADOW ? NONE : scene.brush; w.shadow[i] = scene.brush === SHADOW ? 1 : 0; w.whole[i] = 0; w.uns[i] = 0; w.todo[i] = 0; }
@@ -733,7 +762,7 @@ const ops = {
   flood(x, y) {
     if (!W) return;
     const i0 = Math.floor(y) * SIZE + Math.floor(x), v0 = W.lab[i0], s0 = W.shadow[i0];
-    if (!W.scope[i0]) { this.outside++; return; }
+    if (!W.scope[i0]) { if (W.rail?.[i0]) this.onRail++; else this.outside++; return; }
     const seen = new Uint8Array(N), st = [i0];
     seen[i0] = 1;
     const hit = [];
@@ -766,7 +795,7 @@ const ops = {
   },
   end() {
     if (!W) return;
-    if (!this.n) { W.undo.pop(); scene.changed(); if (this.outside) toast('黄线外（河对岸）不用标，涂不上。'); return; }
+    if (!this.n) { W.undo.pop(); scene.changed(); if (this.outside) toast('黄线外（河对岸）不用标，涂不上。'); else if (this.onRail) toast('铁路已按道床线自动标出，不算五类，不用标。'); return; }
     W.dirty = true;
     scene.changed();
     afterEdit();
@@ -831,7 +860,7 @@ async function openPeriod(code, k, { fit = false, duringModeSwitch = false } = {
   }
   if (seq !== openSeq || openMode !== mode) return;
   const sameSite = W && W.code === code;
-  W = { ...w, mode: openMode, qEditing: w.qEditing ?? !w.quality, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null, scope: scopeOf(code).m };
+  W = { ...w, mode: openMode, qEditing: w.qEditing ?? !w.quality, code, k, p, ai, spx: ai?.sp ? spIndex(ai.sp) : null, src, baseId, undo: [], dirty: false, fromDraft: !!dr?.map, draftAt: dr?.at || null, scope: scopeOf(code).m, rail: scopeOf(code).rail };
   // 10-14 白天按四类存的（没有耕地）：AI 判耕地、存的是水体 / 植被 / 裸露地表的格标黄，看过再存
   let nFarm = 0;
   if (fourClass && ai) {
@@ -878,7 +907,7 @@ function countsOf(w) {
     if (w.todo[i] && !w.tch[i] && v !== NONE) todo++;
     if (w.ai && w.ai.cls[i] !== v) edited++;
   }
-  return { n, uns, tch, todo, edited, shadow, sn, total };
+  return { n, uns, tch, todo, edited, shadow, sn, total, rail: scopeOf(w.code).nRail };
 }
 function renderCounts() {
   if (!W) return;
@@ -891,6 +920,7 @@ function renderCounts() {
   $('pCount').innerHTML = `<span class="todo"><b>待看 ${fmtN(c.todo)}</b> 格</span><span class="uns">拿不准 ${fmtN(c.uns)}</span>`
     + `<span>云 / 云影 ${fmtN(c.shadow)} 格（${pct(c.shadow, c.total)}）</span>`
     + (scopeOf(W.code).aoi ? `<span class="tiny">只算黄线以内 ${fmtN(c.total)} 格</span>` : '')
+    + (c.rail ? `<span class="tiny"><i class="sw" style="background:rgb(${RAIL_RGB})"></i> 铁路 ${fmtN(c.rail)} 格（自动标出，不算五类）</span>` : '')
     + `<span class="tiny">比 AI 预标改了 ${fmtN(c.edited)} 格 · 你动过 ${fmtN(c.tch)} 格</span>`;
   renderPalette(c);
   renderOcclusionSuggestion();
@@ -973,7 +1003,7 @@ function renderPanel() {
     + (info.flick ? `<br>单期跳变清理 ${fmtN(info.flick)} 格（前后两期一致、只有这一期不同，改成前后的类别，标成拿不准）。` : '')
     + (info.sp ? `<br>超像素统一 ${fmtN(info.sp)} 格（这一期共 ${fmtN(info.nsp)} 块）。` : '')
     + `<br><span class="tiny">${esc(AIX?.note || '')}。当前预标主要依据本期光谱、多年用途及道路铁路位置；9月Swin模型只作兜底。</span>`
-    + '<br><b>AI 预标只是参考：</b>水体、植被大多是对的；裸露地表、建成区错得多，尤其铁路线上的格、灰白色采挖面和村里的树；耕地（土黄色）是按多年季节规律画的草稿，人工林、河滩草地可能被误画、零碎的田可能漏掉；薄云下的格标了黄，也要看。先查红色、再查耕地边界、再查棕色、再看水边和云，最后扫一遍绿色。';
+    + '<br><b>AI 预标只是参考：</b>水体、植被大多是对的；裸露地表、建成区错得多，尤其灰白色采挖面和村里的树（铁路已单独自动标出，不用管）；耕地（土黄色）是按多年季节规律画的草稿，人工林、河滩草地可能被误画、零碎的田可能漏掉；薄云下的格标了黄，也要看。先查红色、再查耕地边界、再查棕色、再看水边和云，最后扫一遍绿色。';
   $('modeNote').innerHTML = mode === 'demo' ? '演示模式：保存、复核都只存在这台电脑，不写数据库。右上角可以换回正式模式。'
     : '正式模式：保存会把这一期写进数据库（landcover 表，记标注人），旧版本保留，同一期取最新一条。只想试试操作的，可以点右上角换成演示模式。';
   $('whoInput').value = who;
@@ -1128,7 +1158,8 @@ function validateWork(w = W) {
 async function payloadOf(w) {
   const c = countsOf(w), quality = w.quality, from = w.src, by = who || null, enc = await encodeMap(w);
   const meta = { schema: SCHEMA, n: c.n, uns: c.uns, tch: c.tch, todo: c.todo, edited: c.edited, cloud_shadow: c.shadow, whole_mask_v: 1, legacy_whole: !!w.legacyWhole, quality, ai: AIX?.version || null, from, by, date: w.p.date,
-    scope: scopeOf(w.code).aoi ? 'aoi_v2' : 'full_frame', scope_px: c.total };   // 计数只含范围内；范围外存成 7
+    scope: scopeOf(w.code).aoi ? 'aoi_v2' : 'full_frame', scope_px: c.total,   // 计数只含范围内（不含铁路带）；范围外存成 7
+    rail: scopeOf(w.code).railVersion, rail_px: c.rail, rail_half: RAIL_HALF };   // 10-16：铁路带存成 5
   return { v: 'lc1', enc: enc.enc, map: enc.map, meta };
 }
 function download(blob, name) {
